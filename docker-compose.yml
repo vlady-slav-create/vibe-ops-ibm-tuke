@@ -1,0 +1,56 @@
+# sniff-lab: three containers.
+#   server    - Campus Demo portal (HTTP :8080 and HTTPS :8443), NOT exposed to the host
+#   mitmproxy - "attacker in the middle": sits in front of the server and shows everything that passes;
+#               the addon sends events (with secrets masked) to an endpoint
+#   collector - stub endpoint until the real one is ready
+#
+# You (as the student) open the portal through mitmproxy:
+#   http://localhost:8082   - HTTP, the password is visible in clear text (on the attacker screen)
+#   https://localhost:8083  - HTTPS with a forged certificate (the browser will warn)
+# Attacker screen: http://localhost:8081/?token=demo
+
+services:
+  server:
+    image: python:3.12-alpine
+    command: python /app/server.py
+    volumes:
+      - ./server:/app:ro
+      - ./certs:/certs:ro
+    networks: [lab]
+
+  mitmproxy:
+    image: mitmproxy/mitmproxy
+    # --ssl-insecure: mitmproxy does not verify the real server's self-signed certificate (demo only).
+    command: >-
+      mitmweb --web-host 0.0.0.0 --web-port 8081
+      --mode reverse:http://server:8080@8082
+      --mode reverse:https://server:8443@8083
+      --ssl-insecure --set web_password=demo
+      -s /addon/send.py
+    environment:
+      # Until the real endpoint is ready, send to the local collector stub.
+      # Later: ENDPOINT_URL=https://... ENDPOINT_TOKEN=... docker-compose up -d
+      ENDPOINT_URL: "${ENDPOINT_URL:-http://collector:9000/ingest}"
+      ENDPOINT_TOKEN: "${ENDPOINT_TOKEN:-}"
+      # 1 (default): password/token/Authorization/Cookie go to the cloud as [REDACTED].
+      # 0: no masking, only to show "how not to do it" (REDACT_SECRETS=0 docker-compose up -d).
+      REDACT_SECRETS: "${REDACT_SECRETS:-1}"
+    volumes:
+      - ./addon:/addon:ro
+    ports:
+      - "8081:8081"   # attacker screen (mitmweb)
+      - "8082:8082"   # portal over HTTP
+      - "8083:8083"   # portal over HTTPS
+    networks: [lab]
+    depends_on: [server, collector]
+
+  # Stub for the real endpoint. See what arrived: docker-compose logs -f collector
+  collector:
+    image: python:3.12-alpine
+    command: python /app/collector.py
+    volumes:
+      - ./collector:/app:ro
+    networks: [lab]
+
+networks:
+  lab:
