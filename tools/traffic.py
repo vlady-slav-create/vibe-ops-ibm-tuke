@@ -52,6 +52,7 @@ BAD_LOGIN = {"username": "student", "password": ""}  # empty password: the serve
 
 # (label for the terminal, method, url, body, token, verify_certificate)
 STEPS = [
+    ("portal HTML (ZAP header/form checks)", "GET", f"{HTTP}/",              None,       None,  True),
     ("health",                            "GET",  f"{HTTP}/api/health",   None,       None,  True),
     ("schedule",                          "GET",  f"{HTTP}/api/schedule", None,       None,  True),
     ("courses",                           "GET",  f"{HTTP}/api/courses",  None,       None,  True),

@@ -1,0 +1,32 @@
+# Standard ZAP Automation Framework plan: import local HAR, run passive checks,
+# then write JSON report; no crawling or active scanning configured.
+# Configuration reference: https://www.zaproxy.org/docs/desktop/addons/automation-framework/
+env:
+  contexts:
+    - name: demo-portal
+      urls:
+        - http://server:8080
+        - https://server:8443
+        - http://localhost:8082
+        - https://localhost:8083
+  parameters:
+    failOnError: true
+    failOnWarning: true
+    progressToStdout: true
+jobs:
+  - type: passiveScan-config
+    parameters:
+      scanOnlyInScope: false
+  - type: import
+    parameters:
+      type: har
+      fileName: /zap/wrk/traffic.har
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk
+      reportFile: report.json
+      displayReport: false

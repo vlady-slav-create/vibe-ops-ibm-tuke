@@ -1,0 +1,34 @@
+{
+  "SchemaVersion": "2018-10-08",
+  "ProductArn": "arn:{{partition}}:securityhub:{{region}}:{{account}}:product/{{account}}/default",
+  "AwsAccountId": "{{account}}",
+  "GeneratorId": "sniff-lab/{{mode}}",
+  "Id": "sniff-lab/{{mode}}/{{asset}}/{{group}}",
+  "CreatedAt": "{{captured_at}}",
+  "UpdatedAt": "{{analyzed_at}}",
+  "Title": "{{title}}",
+  "Description": "{{description}}",
+  "FindingProviderFields": {
+    "Severity": {"Label": "{{severity}}"},
+    "Types": ["Software and Configuration Checks"]
+  },
+  "Types": ["Software and Configuration Checks"],
+  "Resources": [{
+    "Type": "Other",
+    "Id": "{{asset}}",
+    "Region": "{{region}}",
+    "Partition": "{{partition}}"
+  }],
+  "Remediation": {
+    "Recommendation": {"Text": "{{remediation}}"}
+  },
+  "ProductFields": {
+    "event_id": "{{event_id}}",
+    "analysis_mode": "{{mode}}",
+    "evidence_s3_uri": "s3://{{bucket}}/results/{{mode}}/{{event_id}}.json",
+    "asset_id": "{{asset}}"
+    {{#fields}}
+    , "{{key}}": "{{value}}"
+    {{/fields}}
+  }
+}

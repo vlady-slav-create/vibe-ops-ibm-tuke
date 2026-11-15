@@ -1,4 +1,6 @@
-"""mitmproxy addon: turns what the proxy sees into signal events and sends them to an endpoint
+"""Legacy optional event exporter; disabled unless EXPORT_EVENTS=1.
+Preferred workflow uses native HAR export and local ZAP; see /README.md#capture-and-offline-zap-scan.
+Turns what the proxy sees into signal events and sends them to an endpoint
 where a diagnostic agent reads them. Events are RAW with respect to traffic: there are no
 conclusions such as "this is a leak", the agent draws those. SECRETS, however, are masked here,
 at the edge, before sending (see below).
@@ -25,9 +27,10 @@ Secret masking (REDACT_SECRETS, on by default):
   on the attacker screen (mitmweb).
 
 Environment variables:
-  ENDPOINT_URL     where to send (default: the local collector stub)
+  ENDPOINT_URL     external endpoint for opt-in legacy export (no default)
   ENDPOINT_TOKEN   if set, sent in the header Authorization: Bearer <token>
   REDACT_SECRETS   0 = send without masking (only to show "how not to do it" in a demo)
+  EXPORT_EVENTS   1 = enable legacy export; default 0 keeps exchanges local for ZAP
 """
 import json
 import os
@@ -37,9 +40,10 @@ from datetime import datetime, timezone
 
 from mitmproxy import ctx
 
-ENDPOINT_URL = os.environ.get("ENDPOINT_URL", "http://collector:9000/ingest")
+ENDPOINT_URL = os.environ.get("ENDPOINT_URL", "")
 ENDPOINT_TOKEN = os.environ.get("ENDPOINT_TOKEN")
 REDACT = os.environ.get("REDACT_SECRETS", "1") != "0"
+EXPORT_EVENTS = os.environ.get("EXPORT_EVENTS", "0") == "1"
 SOURCE = "network-capture"
 
 MASK = "[REDACTED]"
@@ -159,10 +163,15 @@ def send_async(payload):
 
 
 def running():
+    if EXPORT_EVENTS and not ENDPOINT_URL:
+        raise ValueError("EXPORT_EVENTS requires explicit ENDPOINT_URL")
+    ctx.log.info(f"legacy event export: {'ON' if EXPORT_EVENTS else 'OFF (local ZAP capture only)'}")
     ctx.log.info(f"redaction: {'ON' if REDACT else 'OFF (secrets are sent in clear text!)'}")
 
 
 def response(flow):
+    if not EXPORT_EVENTS:
+        return
     # Do not send HTML pages (noise). Send API requests, including normal GETs: without "normal"
     # traffic the agent has nothing to compare the problematic traffic against.
     if "text/html" in flow.response.headers.get("content-type", ""):
@@ -171,5 +180,7 @@ def response(flow):
 
 
 def tls_failed_client(data):
+    if not EXPORT_EVENTS:
+        return
     # The client refused to trust the proxy certificate: in a browser this is "your connection is not private".
     send_async(tls_client_rejected(data.conn))

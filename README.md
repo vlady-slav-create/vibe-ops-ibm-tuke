@@ -1,150 +1,239 @@
 # sniff-lab
 
-A local signal source for a diagnostic agent. It intercepts traffic between a client and a demo portal, turns it into JSON events and sends them to an endpoint where an agent looks for problems. All data is fake: the portal accepts any non-empty username and password (for example `student` / `demo-password`).
+Local demo traffic, offline ZAP scanning, and agent-led security triage on AWS.
+Only sanitized findings leave the host; raw captures stay local.
 
-HTTP and HTTPS here are **test data**, not the topic itself: traffic in which the agent has to notice that something is wrong. The same approach would work for VPS logs (use-case 1), just with a different `source`.
+## Architecture
 
-## Overview
+![Architecture overview](architecture.svg)
 
-```
-browser / tools/traffic.py ──► mitmproxy ──► server (Campus Demo portal)
-                                   │
-                                   ├─ attacker screen (mitmweb :8081): sees everything, including the password
-                                   │
-                                   └─ addon/send.py ──► collector (stub)  ──►  AWS endpoint
-                                      masks secrets     JSON events             diagnostic agent
-```
+| Architecture | Diagram | Editable |
+| --- | --- | --- |
+| Overview | [SVG](architecture.svg) | [Draw.io](architecture.drawio) |
+| Single agent (`single`) | [SVG](architecture-alternative-1.svg) | [Draw.io](architecture-alternative-1.drawio) |
+| Model-directed orchestrator (`orchestrator`) | [SVG](architecture-alternative-2.svg) | [Draw.io](architecture-alternative-2.drawio) |
+| Parallel reviews (`graph`) | [SVG](architecture-alternative-3.svg) | [Draw.io](architecture-alternative-3.drawio) |
 
-Two levels of visibility, which is a useful point for the talk:
+### Single agent (`single`)
 
-| Who | What they see |
-|-----|---------------|
-| Attacker (mitmweb) | Everything as is, password in clear text |
-| Agent in the cloud | Events without secret values: `"password": "[REDACTED]"` plus `redacted_fields: ["request.body.password"]` |
+![Single-agent architecture](architecture-alternative-1.svg)
 
-## Containers
+### Model-directed orchestrator (`orchestrator`)
 
-| Container | Role |
-|-----------|------|
-| `server` | Campus Demo portal and a small API: HTTP :8080 and HTTPS :8443. Not exposed to the host |
-| `mitmproxy` | Sits in front of the server, shows traffic (mitmweb) and sends events through the addon |
-| `collector` | Stub for the real endpoint: prints received events to its log |
+![Model-directed orchestrator architecture](architecture-alternative-2.svg)
 
-## Run
+### Parallel reviews (`graph`)
+
+![Parallel-review graph architecture](architecture-alternative-3.svg)
+
+## Agent robustness and cost controls
+
+`single` remains the default. All report-producing agents use Strands structured
+output backed by the existing JSON Schema; evidence citation checks still run
+after generation. Invalid, truncated, or budget-exhausted reports are not published.
+Single requests allow two turns and one failed structured-output attempt;
+orchestrator requests share an eight-turn budget with nested agents. Token limits
+are checked between calls, not hard billing caps. Per-response output stays capped
+at 6,000 tokens. Graph nodes and specialists retain hard call caps (two each).
+
+Terraform `prompt_cache_enabled` defaults to `true`. Strands automatic model
+detection caches only static system prefixes with a five-minute TTL, not evidence
+messages. Disable for unsupported models. Model-specific minimum token thresholds
+still apply; small prompts may produce no cache hits. Caching is not scan memory.
+
+Runtime emits allowlisted JSON metrics: latency, token/cache usage when provided,
+tool-failure counts, completion/budget outcome, context schema version and baseline
+availability. SDK log propagation and OpenTelemetry export are disabled in the
+runtime to avoid exporting evidence, reports or tool payloads. No new AWS telemetry
+permissions or tracing backend required. Do not enable Bedrock invocation-body
+logging for this demo.
+
+AgentCore Memory remains intentionally unused: there is no authenticated
+human-decision ingestion path. Add it when approved triage decisions need semantic
+retrieval; namespace by tenant/asset, retain provenance and expiry, and never use
+model-extracted memories as authoritative scan baselines or action permissions.
+
+## Local demo
+
+Docker Compose and Python 3 required. Commands assume clone at
+`/workspaces/project/vibe-ops-ibm-tuke`.
 
 ```bash
-docker-compose up -d
-docker-compose logs -f collector     # the events the agent would receive
+cd /workspaces/project/vibe-ops-ibm-tuke
+sh /workspaces/project/vibe-ops-ibm-tuke/certs/make-certs.sh
+docker compose up -d server mitmproxy
+python3 /workspaces/project/vibe-ops-ibm-tuke/tools/traffic.py -n 5
 ```
-
-Stop: `docker-compose down`. If you have `docker compose` (with a space), you can drop the hyphen.
-
-## Addresses
 
 | Address | Role |
-|---------|------|
-| http://localhost:8082 | Portal over HTTP |
-| https://localhost:8083 | Portal over HTTPS (proxy certificate, the browser will warn) |
-| http://localhost:8081/?token=demo | mitmweb: what the attacker sees |
+| --- | --- |
+| http://localhost:8082 | Demo portal over HTTP |
+| https://localhost:8083 | Demo portal over HTTPS; proxy certificate warning expected |
+| http://localhost:8081/?token=demo | mitmweb traffic inspection |
 
-## Server API
+Use synthetic credentials only, e.g. `student` / `demo-password`. The portal
+accepts any non-empty credentials. Do not expose this intentionally insecure demo
+publicly. Raw HAR contains credentials; never upload it or raw ZAP reports.
 
-| Request | Response |
-|---------|----------|
-| `GET /` | Portal page |
-| `GET /api/health` | 200 |
-| `GET /api/schedule` | 200, schedule |
-| `GET /api/courses` | 200, courses |
-| `POST /login` with any non-empty username and password | 200 with a token |
-| `POST /login` with an empty field | 401 |
-| `GET /api/grades` with `Authorization: Bearer demo-token-123` | 200 |
-| `GET /api/grades` without a token | 401 |
-| anything else | 404 |
+Keep `EXPORT_EVENTS=0` (default); legacy per-exchange export is not needed.
+Stop with `docker compose down`.
 
-## Traffic generator
+### Capture and offline ZAP scan
+
+Run on a Docker-capable host; Dev Container has no Docker socket. Local conversion
+also requires jq 1.6+ and `sha256sum` (GNU coreutils). After generating traffic above:
 
 ```bash
-python3 tools/traffic.py -n 5     # 5 rounds
+cd /workspaces/project/vibe-ops-ibm-tuke
+umask 077
+mkdir -p /workspaces/project/vibe-ops-ibm-tuke/zap/private
+chmod 700 /workspaces/project/vibe-ops-ibm-tuke/zap/private
+export ZAP_UID=$(id -u) ZAP_GID=$(id -g)
+# Native HAR export writes on graceful exit; do not use docker kill.
+docker compose stop -t 30 mitmproxy
+docker compose cp mitmproxy:/home/mitmproxy/traffic.har /workspaces/project/vibe-ops-ibm-tuke/zap/private/traffic.har
+chmod 600 /workspaces/project/vibe-ops-ibm-tuke/zap/private/traffic.har
+# Prevent stale report reuse if this scan fails.
+rm -f /workspaces/project/vibe-ops-ibm-tuke/zap/private/report.json
+docker compose --profile zap run --rm zap
+# Run only after ZAP exits successfully.
+sh /workspaces/project/vibe-ops-ibm-tuke/zap/export.sh
 ```
 
-Run it from the Mac, nothing to install. One round is 10 requests, mixing normal and problematic traffic. The agent gets them without labels and has to tell them apart.
+ZAP 2.17.0 imports HAR without replay, crawling or active scanning. Its container
+has no network or AWS credentials; local scan/conversion makes no cloud/model calls.
+Raw HAR and ZAP reports contain secrets: never upload them to an LLM, cloud storage,
+issue tracker or Git. Keep captures short (HAR accumulates in memory until exit),
+delete raw files after review, and restart mitmproxy before capturing again.
 
-| Kind | Requests | Event in the collector |
-|------|----------|------------------------|
-| Normal | `GET /api/health`, `/api/schedule`, `/api/courses`, login, `GET /api/grades` with a token (all 200) | `http_exchange`, `scheme: http` |
-| Noise | login with an empty password (401), `GET /api/grades` without a token (401), `GET /nope` (404) | `http_exchange`, `scheme: http` |
-| Transport | HTTPS with the certificate ignored | `http_exchange`, `scheme: https`, `tls_terminated_by_proxy: true` |
-| Transport | HTTPS with the certificate verified | `tls_client_rejected` |
+Only sanitized `zap/private/event.json` may be published. It contains numeric rule
+IDs, risk/confidence/counts, asset ID, timestamp, SHA-256 event ID and optional
+baseline, not URLs, headers, bodies or matched evidence. Agents cannot infer affected
+endpoints, HTTP/HTTPS exposure or comparable coverage from it. Empty findings do not
+prove safety; require successful ZAP exit and local review. ZAP detects weaknesses,
+not arbitrary secret leaks or malicious MITM attribution.
 
-By hand: open the portal in a browser. On :8083 the browser warns about the certificate. "Continue" is the ignored-certificate case, refusing is the verified case.
+## AWS deployment
 
-## Secret masking
+### Prerequisites
 
-Earlier, the password and token went to the cloud in clear text. Now the addon masks them **at the edge**, before sending. The cloud should not receive anything it does not need for diagnosis.
+- Terraform >= 1.5, Python 3.12, AWS CLI, Docker with ARM64 buildx support.
+- AWS deployment credentials with service-creation, IAM role-passing, and `bedrock:GetInferenceProfile` permissions.
+- AgentCore Runtime and Bedrock model access in selected region; default `eu-central-1` with Claude Sonnet 4 EU inference profile.
+- Existing IAM user/role for publishing, allowed to assume stack's publisher role.
 
-- In JSON (at any depth) the values of the keys `password`, `passwd`, `pwd`, `secret`, `token`, `access_token`, `refresh_token`, `id_token`, `api_key`, `apikey` become `[REDACTED]`.
-- So do the headers `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`.
-- A body that is not JSON is not sent at all (you get `[omitted: not JSON, N chars]`). This is the safe default.
-- The fact that a password was there is not lost: the names of the hidden fields are in `redacted_fields`, and the transport is visible in `scheme`. The agent draws the conclusion "a password went over HTTP" itself.
+Use a dedicated demo account. Terraform owns regional Security Hub CSPM enrollment;
+destroying this stack disables it, including imported enrollment. AWS charges apply.
 
-To turn masking off (only to show how not to do it in a demo): `REDACT_SECRETS=0 docker-compose up -d`. The mitmproxy log prints `redaction: ON` or `OFF` at startup.
+### Deploy with Terraform
 
-Verified by a run: with masking on, the values `demo-password` and `demo-token-123` do not appear in the collector log; with masking off they do.
+1. Create `/workspaces/project/vibe-ops-ibm-tuke/aws/terraform/demo.tfvars` (ignored by Git). Replace publisher ARN:
 
-## Event format
+   ```hcl
+   region                  = "eu-central-1"
+   publisher_principal_arn = "arn:aws:iam::123456789012:role/YourExistingLabRole"
+   analysis_mode           = "single" # single, orchestrator, graph
+   ```
 
-A common envelope for any source:
+2. Package Lambda and initialize Terraform:
 
-| Field | Meaning |
-|-------|---------|
-| `source` | Where the signal comes from (here `network-capture`) |
-| `event` | Event type |
-| `captured_at` | Time, UTC |
+   ```bash
+   sh /workspaces/project/vibe-ops-ibm-tuke/aws/scripts/package.sh
+   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform init
+   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform validate
+   ```
 
-Events are raw with respect to traffic: the conclusion ("this is a leak") is drawn by the agent, not the addon.
+   If Security Hub is already enabled, import it before applying:
 
-**`http_exchange`**: a request and response went through. Fields: `scheme`, `tls_terminated_by_proxy` (the client accepted the proxy certificate), `client_ip`, `redacted_fields`, `request` (method, host, path, headers, body), `response` (status_code, headers, body).
+   ```bash
+   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform import \
+     -var-file=demo.tfvars aws_securityhub_account.demo \
+     "$(aws sts get-caller-identity --query Account --output text)"
+   ```
 
-**`tls_client_rejected`**: the client aborted the TLS handshake. Fields: `client_ip`, `sni`, `error`.
+3. Bootstrap resources, including ECR. Review Terraform's plan before confirming:
 
-Example `http_exchange` (shortened):
+   ```bash
+   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform apply -var-file=demo.tfvars
+   ```
 
-```json
-{
-  "source": "network-capture",
-  "event": "http_exchange",
-  "scheme": "http",
-  "tls_terminated_by_proxy": false,
-  "redacted_fields": ["request.body.password", "response.body.token"],
-  "request":  {"method": "POST", "path": "/login", "body": "{\"username\": \"student\", \"password\": \"[REDACTED]\"}"},
-  "response": {"status_code": 200, "body": "{\"status\": \"ok\", \"token\": \"[REDACTED]\"}"}
-}
-```
+4. Build and push runtime image using deployment credentials. Match region to `demo.tfvars`; use a new tag for each build:
 
-This is a **draft**, not yet agreed with the endpoint owner. It is built in `addon/send.py`.
+   ```bash
+   export AWS_REGION=eu-central-1
+   REPO=$(terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform output -raw ecr_repository_url)
+   REGISTRY=${REPO%%/*}
+   TAG=demo-v1
+   aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+   docker buildx build --platform linux/arm64 --provenance=false \
+     -f /workspaces/project/vibe-ops-ibm-tuke/aws/agentcore_runtime/Dockerfile \
+     -t "$REPO:$TAG" --push /workspaces/project/vibe-ops-ibm-tuke/aws
+   DIGEST=$(aws ecr describe-images --region "$AWS_REGION" \
+     --repository-name "${REPO#*/}" --image-ids "imageTag=$TAG" \
+     --query 'imageDetails[0].imageDigest' --output text)
+   printf 'image_uri = "%s@%s"\n' "$REPO" "$DIGEST"
+   ```
 
-## Connecting the real endpoint
+5. Add printed `image_uri` line to `demo.tfvars`, then deploy runtime and pipeline:
+
+   ```bash
+   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform apply -var-file=demo.tfvars
+   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform output
+   ```
+
+   Keep `image_uri` in `demo.tfvars`; removing it destroys runtime and stream consumer.
+   For updates, repackage Lambda, push a new image tag, and replace saved digest before applying.
+
+### Use
+
+After [capture and conversion](#capture-and-offline-zap-scan) succeeds, configure
+host AWS CLI profile `sniff-publisher` to assume Terraform's `publisher_role_arn`.
+Set `KINESIS_STREAM_NAME` to output `stream_name` and `AWS_REGION` to deployment region:
 
 ```bash
-ENDPOINT_URL=https://... ENDPOINT_TOKEN=... docker-compose up -d
+aws kinesis put-record \
+  --stream-name "${KINESIS_STREAM_NAME:?set KINESIS_STREAM_NAME}" \
+  --partition-key demo-portal \
+  --data fileb:///workspaces/project/vibe-ops-ibm-tuke/zap/private/event.json \
+  --region "${AWS_REGION:?set AWS_REGION}" \
+  --profile sniff-publisher --no-cli-pager
 ```
 
-Without these variables, events go to the `collector`. Authorization is currently a Bearer token only.
+Publish sanitized events only; never HAR or raw ZAP reports. Success returns shard/
+sequence IDs, not completed analysis. On failure, retry the same saved event to retain
+its ID for deduplication. Review recommendations in **Security Hub CSPM → Findings**
+using output `security_hub_console_url`; full reports stay in `results_bucket` S3 bucket.
+Security reviews recommendations; engineers apply fixes and recapture. Missing alerts
+do not auto-close findings, and agents do not perform autonomous remediation.
 
-## Notes
+### Baselines
 
-- `client_ip` in the events is the Docker gateway (`172.20.0.1`), not the Mac.
-- Reverse mode rewrites the address: the client goes to `localhost:8082`, while the event's `host` is `server`.
-- After a rejected TLS handshake, the `server` log may show a `BrokenPipeError`. It is harmless (the proxy manages to open a connection to the server and then closes it), but do not show that log in a recording.
+Scan analysis shares seven-day S3 context across executions. Without an embedded
+baseline, each scan pins the latest accepted earlier scan for its demo asset.
+Retries retain pinned context; only validated, saved analyses advance latest context.
+All agents receive one precomputed comparison; absent alerts never prove resolution.
+Saved results retain original evidence, pinned context and deterministic deltas.
+Automatic baselines assume one demo scan scope per asset, not verified comparability.
 
-## Portal
+For an explicit baseline, save sanitized `event.json` before the next capture:
 
-`server/index.html` has a deliberately fictional name (Campus Demo) and its own look. It is not a copy of any real system. Do not turn it back into something that resembles a real university portal, and do not host it publicly. The interface is in English; it is easy to change in the file itself.
+```bash
+cp /workspaces/project/vibe-ops-ibm-tuke/zap/private/event.json /workspaces/project/vibe-ops-ibm-tuke/zap/private/baseline.json
+```
 
-## Certificate
+After a fresh capture and successful ZAP run, convert with the saved baseline, then
+publish the new `event.json` using the command above. Explicit baselines take precedence:
 
-`certs/make-certs.sh` creates a self-signed server certificate (`certs/server.crt`, `certs/server.key`). Demo only; they are not committed, so run the script after cloning. A certificate created on 2026-11-10 is valid for one year. The browser in the demo is not shown this one but the mitmproxy certificate: this one is only for the proxy-to-server connection.
+```bash
+sh /workspaces/project/vibe-ops-ibm-tuke/zap/export.sh \
+  /workspaces/project/vibe-ops-ibm-tuke/zap/private/baseline.json
+```
 
-## Open items
+### Cleanup
 
-- Agree the endpoint contract: URL and method, authorization (Bearer, API key or IAM), the JSON fields the agent needs, one event per request or a batch.
+Export any needed results, then explicitly empty the results bucket and ECR repository.
+The stack refuses to delete them while nonempty. Keep Terraform state until cleanup succeeds.
+
+```bash
+terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform destroy -var-file=demo.tfvars
+```

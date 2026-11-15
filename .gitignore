@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Draw.io temporary files
+.$*.drawio.bkp
+*.drawio.dtmp
+
 # Python
 __pycache__/
 *.pyc
@@ -18,3 +22,17 @@ mais-ui-img.png
 
 # Archive of old experiments
 _old/
+
+# AWS build artifacts, Terraform state and local configuration
+aws/build/
+aws/terraform/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+crash.log
+
+# Raw HAR, ZAP sessions/reports and sanitized scan snapshots remain local.
+zap/private/
+
+*.drawio.bkp

@@ -1,0 +1,68 @@
+{
+  "Comment": "Deterministic delivery orchestration; agent coordination stays inside AgentCore.",
+  "StartAt": "AnalyzeAndStore",
+  "TimeoutSeconds": 1200,
+  "States": {
+    "AnalyzeAndStore": {
+      "Type": "Task",
+      "Resource": "${analyze_and_store_arn}",
+      "Parameters": {"mode.$": "$.mode", "events.$": "$.events"},
+      "TimeoutSeconds": 310,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Next": "PublishFindings"
+    },
+    "PublishFindings": {
+      "Type": "Parallel",
+      "Branches": [{
+        "StartAt": "RenderFindings",
+        "States": {
+          "RenderFindings": {
+            "Type": "Task",
+            "Resource": "${publish_findings_arn}",
+            "TimeoutSeconds": 70,
+            "Next": "ImportFindings"
+          },
+          "ImportFindings": {
+            "Type": "Task",
+            "Resource": "arn:${partition}:states:::aws-sdk:securityhub:batchImportFindings",
+            "Parameters": {"Findings.$": "$.Findings"},
+            "TimeoutSeconds": 60,
+            "ResultPath": "$.import",
+            "Next": "CheckImport"
+          },
+          "CheckImport": {
+            "Type": "Choice",
+            "Choices": [{"And": [
+              {"Variable": "$.import.FailedCount", "NumericEquals": 0},
+              {"Variable": "$.import.SuccessCount", "NumericEqualsPath": "$.expected_count"}
+            ], "Next": "Published"}],
+            "Default": "ImportRejected"
+          },
+          "Published": {
+            "Type": "Pass",
+            "Parameters": {"securityhub_findings.$": "$.import.SuccessCount"},
+            "End": true
+          },
+          "ImportRejected": {"Type": "Fail", "Error": "SecurityHub.PartialImport", "Cause": "Retry publishing saved analysis; never repeat inference."}
+        }
+      }],
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout"],
+          "IntervalSeconds": 10,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "OutputPath": "$[0]",
+      "End": true
+    }
+  }
+}

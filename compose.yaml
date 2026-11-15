@@ -1,8 +1,7 @@
-# sniff-lab: three containers.
+# sniff-lab: local capture and offline ZAP; AWS CLI publishes sanitized findings.
 #   server    - Campus Demo portal (HTTP :8080 and HTTPS :8443), NOT exposed to the host
 #   mitmproxy - "attacker in the middle": sits in front of the server and shows everything that passes;
-#               the addon sends events (with secrets masked) to an endpoint
-#   collector - stub endpoint until the real one is ready
+#               native HAR stays local; optional legacy addon export is disabled
 #
 # You (as the student) open the portal through mitmproxy:
 #   http://localhost:8082   - HTTP, the password is visible in clear text (on the attacker screen)
@@ -26,31 +25,35 @@ services:
       --mode reverse:http://server:8080@8082
       --mode reverse:https://server:8443@8083
       --ssl-insecure --set web_password=demo
+      --set hardump=/home/mitmproxy/traffic.har
       -s /addon/send.py
     environment:
-      # Until the real endpoint is ready, send to the local collector stub.
-      # Later: ENDPOINT_URL=https://... ENDPOINT_TOKEN=... docker-compose up -d
-      ENDPOINT_URL: "${ENDPOINT_URL:-http://collector:9000/ingest}"
+      # Optional legacy export requires an explicitly configured external endpoint.
+      ENDPOINT_URL: "${ENDPOINT_URL:-}"
       ENDPOINT_TOKEN: "${ENDPOINT_TOKEN:-}"
-      # 1 (default): password/token/Authorization/Cookie go to the cloud as [REDACTED].
-      # 0: no masking, only to show "how not to do it" (REDACT_SECRETS=0 docker-compose up -d).
+      # Only affects opt-in legacy event export, never raw local HAR.
+      # 0: no masking, local-only demo (REDACT_SECRETS=0 docker compose up -d).
       REDACT_SECRETS: "${REDACT_SECRETS:-1}"
+      # Default: keep exchanges local. ZAP findings are exported explicitly after scanning.
+      EXPORT_EVENTS: "${EXPORT_EVENTS:-0}"
     volumes:
       - ./addon:/addon:ro
     ports:
-      - "8081:8081"   # attacker screen (mitmweb)
-      - "8082:8082"   # portal over HTTP
-      - "8083:8083"   # portal over HTTPS
+      - "127.0.0.1:8081:8081"   # attacker screen (mitmweb), local only
+      - "127.0.0.1:8082:8082"   # portal over HTTP
+      - "127.0.0.1:8083:8083"   # portal over HTTPS
     networks: [lab]
-    depends_on: [server, collector]
+    depends_on: [server]
 
-  # Stub for the real endpoint. See what arrived: docker-compose logs -f collector
-  collector:
-    image: python:3.12-alpine
-    command: python /app/collector.py
+  zap:
+    profiles: [zap]
+    image: ghcr.io/zaproxy/zaproxy:2.17.0
+    user: "${ZAP_UID:-1000}:${ZAP_GID:-1000}"
+    network_mode: none
     volumes:
-      - ./collector:/app:ro
-    networks: [lab]
+      - ./zap/plan.yaml:/zap/plan.yaml:ro
+      - ./zap/private:/zap/wrk:rw
+    command: ["zap.sh", "-cmd", "-silent", "-dir", "/zap/wrk/home", "-autorun", "/zap/plan.yaml"]
 
 networks:
   lab:

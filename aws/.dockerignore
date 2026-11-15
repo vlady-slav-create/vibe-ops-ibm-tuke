@@ -1,0 +1,12 @@
+terraform/
+lambda_functions/
+tests/
+scripts/
+build/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.md
+!agentcore_runtime/skills/**/SKILL.md
+*.svg
+*.drawio

@@ -1,0 +1,6 @@
+boto3==1.44.2
+jsonschema==4.26.0
+jq==1.13.0
+pystache==0.6.8
+strands-agents==1.65.0
+pydantic==2.14.3

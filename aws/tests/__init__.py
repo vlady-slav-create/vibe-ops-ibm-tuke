@@ -1,0 +1,1 @@
+"""Offline architecture and pipeline checks; not deployed."""
