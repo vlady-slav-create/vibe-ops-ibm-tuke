@@ -5,26 +5,26 @@ Only sanitized findings leave the host; raw captures stay local.
 
 ## Architecture
 
-![Architecture overview](architecture.svg)
+![Architecture overview](docs/architecture.svg)
 
 | Architecture | Diagram | Editable |
 | --- | --- | --- |
-| Overview | [SVG](architecture.svg) | [Draw.io](architecture.drawio) |
-| Single agent (`single`) | [SVG](architecture-alternative-1.svg) | [Draw.io](architecture-alternative-1.drawio) |
-| Model-directed orchestrator (`orchestrator`) | [SVG](architecture-alternative-2.svg) | [Draw.io](architecture-alternative-2.drawio) |
-| Parallel reviews (`graph`) | [SVG](architecture-alternative-3.svg) | [Draw.io](architecture-alternative-3.drawio) |
+| Overview | [SVG](docs/architecture.svg) | [Draw.io](docs/architecture.drawio) |
+| Single agent (`single`) | [SVG](docs/architecture-alternative-1.svg) | [Draw.io](docs/architecture-alternative-1.drawio) |
+| Model-directed orchestrator (`orchestrator`) | [SVG](docs/architecture-alternative-2.svg) | [Draw.io](docs/architecture-alternative-2.drawio) |
+| Parallel reviews (`graph`) | [SVG](docs/architecture-alternative-3.svg) | [Draw.io](docs/architecture-alternative-3.drawio) |
 
 ### Single agent (`single`)
 
-![Single-agent architecture](architecture-alternative-1.svg)
+![Single-agent architecture](docs/architecture-alternative-1.svg)
 
 ### Model-directed orchestrator (`orchestrator`)
 
-![Model-directed orchestrator architecture](architecture-alternative-2.svg)
+![Model-directed orchestrator architecture](docs/architecture-alternative-2.svg)
 
 ### Parallel reviews (`graph`)
 
-![Parallel-review graph architecture](architecture-alternative-3.svg)
+![Parallel-review graph architecture](docs/architecture-alternative-3.svg)
 
 ## Agent robustness and cost controls
 
