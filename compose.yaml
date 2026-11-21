@@ -67,6 +67,22 @@ services:
       storage:
         condition: service_completed_successfully
 
+  # Simulated client: clear-text login over HTTP, TLS-warning HTTPS, unauthenticated grades call.
+  client:
+    image: curlimages/curl:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while :; do
+          curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{"username":"student","password":"hunter2"}' http://mitmproxy:8082/login
+          curl -s -o /dev/null http://mitmproxy:8082/api/courses
+          curl -s -o /dev/null http://mitmproxy:8082/api/grades
+          curl -sk -o /dev/null https://mitmproxy:8083/api/schedule
+          sleep "$${TRAFFIC_INTERVAL:-30}"
+        done
+    networks: [lab]
+    depends_on: [mitmproxy]
+
   zap:
     image: ghcr.io/zaproxy/zaproxy:2.17.0
     user: "1000:1000"
