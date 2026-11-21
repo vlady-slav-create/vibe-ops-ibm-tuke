@@ -1,3 +1,7 @@
+output "region" {
+  value = var.region
+}
+
 output "stream_name" {
   value = aws_kinesis_stream.events.name
 }
@@ -15,7 +19,17 @@ output "results_bucket" {
 }
 
 output "publisher_role_arn" {
-  value = aws_iam_role.publisher.arn
+  description = "Assumed automatically by make compose COMPOSE_PROFILES=aws; only temporary credentials reach Docker."
+  value       = aws_iam_role.publisher.arn
+}
+
+output "service_role_arns" {
+  description = "AWS service execution roles. Assigned by Terraform; never pass their credentials to local Docker containers."
+  value = {
+    step_functions = aws_iam_role.workflow[0].arn
+    agentcore      = aws_iam_role.agent.arn
+    lambda         = { for task, role in aws_iam_role.pipeline : task => role.arn }
+  }
 }
 
 output "runtime_arn" {

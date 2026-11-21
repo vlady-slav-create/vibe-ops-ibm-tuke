@@ -2,7 +2,7 @@ locals {
   pipeline_tasks = local.enabled ? {
     start-analysis = {
       handler     = "start_analysis", timeout = 30,
-      environment = { WORKFLOW_ARN = "${local.prefix}:states:${var.region}:${local.account}:stateMachine:${var.name}-security-analysis", ANALYSIS_MODE = var.analysis_mode }
+      environment = { WORKFLOW_ARN = "${local.prefix}:states:${var.region}:${local.account}:stateMachine:${var.name}-security-analysis" }
     }
     analyze-and-store = {
       handler     = "analyze_and_store", timeout = 300,

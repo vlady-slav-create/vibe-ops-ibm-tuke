@@ -14,8 +14,8 @@ variable "name" {
 
 variable "model_id" {
   type        = string
-  default     = "eu.anthropic.claude-sonnet-4-20250514-v1:0"
-  description = "Bedrock Converse inference profile ID. Demo defaults to Claude Sonnet 4 EU; Terraform resolves profile and destination model ARNs for IAM."
+  default     = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  description = "Bedrock Converse inference profile ID. Demo defaults to Claude Sonnet 4.5 EU; Terraform resolves profile and destination model ARNs for IAM."
   validation {
     condition     = length(trimspace(var.model_id)) > 0 && !strcontains(var.model_id, "*")
     error_message = "Provide a nonempty inference profile ID without wildcards."
@@ -25,17 +25,7 @@ variable "model_id" {
 variable "image_uri" {
   type        = string
   default     = ""
-  description = "ARM64 image in this stack's ECR repository; empty creates bootstrap resources only. Prefer immutable digest."
-}
-
-variable "analysis_mode" {
-  type        = string
-  default     = "single"
-  description = "single: direct analysis with bounded structured output; orchestrator: model-selected specialist tools; graph: parallel reviews then summarizer."
-  validation {
-    condition     = contains(["single", "orchestrator", "graph"], var.analysis_mode)
-    error_message = "Use single, orchestrator or graph."
-  }
+  description = "Optional prebuilt ARM64 image URI. Empty builds and pushes the runtime image automatically during apply."
 }
 
 variable "prompt_cache_enabled" {
@@ -46,5 +36,10 @@ variable "prompt_cache_enabled" {
 
 variable "publisher_principal_arn" {
   type        = string
-  description = "Existing IAM user/role ARN allowed to assume publisher role; not an STS session ARN."
+  default     = null
+  description = "Optional trusted IAM user/role override. Defaults to the authenticated Terraform user's ARN or underlying IAM role (including SSO)."
+  validation {
+    condition     = var.publisher_principal_arn == null || can(regex("^arn:[^:]+:iam::[0-9]{12}:(user|role)/.+$", var.publisher_principal_arn))
+    error_message = "Use an IAM user or role ARN, not an STS session or account root ARN."
+  }
 }

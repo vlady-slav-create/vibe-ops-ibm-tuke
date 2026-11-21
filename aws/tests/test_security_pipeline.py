@@ -124,7 +124,7 @@ def main():
         raise AssertionError("schema-valid invented citation published")
 
     with patch.dict(os.environ, {"PROMPT_CACHE_ENABLED": "true",
-                                 "MODEL_ID": "eu.anthropic.claude-sonnet-4-20250514-v1:0"}):
+                                 "MODEL_ID": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"}):
         cached_model = bedrock_model()
     cached_model.client = client
     client.reset_mock()
@@ -307,10 +307,14 @@ def main():
     assert runtime.invoke_agent_runtime.call_count == 1, "saved-result reuse repeated inference"
     workflows = Mock()
     records[0]["eventID"] = "shardId-000000000000:123"
-    start(records, workflows, "workflow", "single")
-    first = workflows.start_execution.call_args
-    start(records, workflows, "workflow", "single")
-    assert workflows.start_execution.call_args == first
+    start(records, workflows, "workflow")
+    starts = workflows.start_execution.call_args_list[:]
+    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["single", "orchestrator", "graph"]
+    assert len({c.kwargs["name"] for c in starts}) == 3
+    assert all(json.loads(c.kwargs["input"])["events"] == [event] for c in starts)
+    first = starts[0]
+    start(records, workflows, "workflow")
+    assert workflows.start_execution.call_args_list[3:] == starts
     assert json.loads(first.kwargs["input"]) == {"mode": "single", "events": [event]}
     assert len(first.kwargs["name"]) == 64
     for invalid_keys in [[], ["results/single/../../secret"], [keys[0], keys[0]]]:
@@ -322,11 +326,17 @@ def main():
             raise AssertionError("invalid workflow handoff accepted")
     workflows.start_execution.side_effect = ClientError(
         {"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution")
-    start(records, workflows, "workflow", "single")
+    start(records, workflows, "workflow")
+    workflows.start_execution.reset_mock()
+    workflows.start_execution.side_effect = [
+        ClientError({"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution"),
+        None, None]
+    start(records, workflows, "workflow")
+    assert workflows.start_execution.call_args_list == starts, "retry must resume missing mode executions"
     workflows.start_execution.side_effect = ClientError(
         {"Error": {"Code": "AccessDeniedException"}}, "StartExecution")
     try:
-        start(records, workflows, "workflow", "single")
+        start(records, workflows, "workflow")
     except ClientError:
         pass
     else:
@@ -352,7 +362,7 @@ def main():
     special["report"]["work_items"][0].update(title=value, observation=value, fix=value)
     rendered = findings_for(special, *location, "demo-bucket")
     assert special["report"]["summary"] in rendered[0]["Description"]
-    assert rendered[1]["Title"] == value
+    assert rendered[1]["Title"] == f"[single] {value}"
     assert rendered[1]["ProductFields"]["observation"] == value
     assert rendered[1]["Remediation"]["Recommendation"]["Text"] == (
         f"Fix: {value}\nAcceptance/retest: {report['work_items'][0]['retest']}")

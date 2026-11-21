@@ -10,6 +10,35 @@ resource "aws_ecr_repository" "agent" {
   }
 }
 
+locals {
+  runtime_sources = concat(
+    ["requirements.txt", ".dockerignore", "scripts/build_image.py"],
+    [for file in fileset("${path.module}/../agentcore_runtime", "**") : "agentcore_runtime/${file}" if !strcontains(file, "__pycache__/") && !endswith(file, ".pyc")],
+    [for file in fileset("${path.module}/../contracts", "**") : "contracts/${file}" if !strcontains(file, "__pycache__/") && !endswith(file, ".pyc")]
+  )
+  runtime_tag = sha256(jsonencode({ for file in local.runtime_sources : file => filesha256("${path.module}/../${file}") }))
+}
+
+resource "terraform_data" "runtime_image" {
+  count            = var.image_uri == "" ? 1 : 0
+  triggers_replace = [local.runtime_tag, aws_ecr_repository.agent.repository_url]
+  provisioner "local-exec" {
+    command = "python3 \"${abspath(path.module)}/../scripts/build_image.py\""
+    environment = {
+      ECR_REPOSITORY_URL = aws_ecr_repository.agent.repository_url
+      IMAGE_TAG          = local.runtime_tag
+      AWS_REGION         = var.region
+    }
+  }
+}
+
+data "aws_ecr_image" "runtime" {
+  count           = var.image_uri == "" ? 1 : 0
+  repository_name = aws_ecr_repository.agent.name
+  image_tag       = local.runtime_tag
+  depends_on      = [terraform_data.runtime_image]
+}
+
 resource "aws_bedrock_guardrail" "analysis" {
   count                     = local.enabled ? 1 : 0
   name                      = "${var.name}-analysis"
@@ -18,7 +47,7 @@ resource "aws_bedrock_guardrail" "analysis" {
   content_policy_config {
     filters_config {
       input_strength  = "HIGH"
-      output_strength = "HIGH"
+      output_strength = "NONE"
       type            = "PROMPT_ATTACK"
     }
   }
@@ -30,7 +59,7 @@ resource "aws_bedrockagentcore_agent_runtime" "analysis" {
   role_arn           = aws_iam_role.agent.arn
   agent_runtime_artifact {
     container_configuration {
-      container_uri = var.image_uri
+      container_uri = var.image_uri != "" ? var.image_uri : "${aws_ecr_repository.agent.repository_url}@${data.aws_ecr_image.runtime[0].image_digest}"
     }
   }
   network_configuration {

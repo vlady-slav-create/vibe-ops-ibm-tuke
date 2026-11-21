@@ -1,8 +1,14 @@
 resource "aws_iam_role" "publisher" {
   name = "${var.name}-publisher"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
-    Effect = "Allow", Action = "sts:AssumeRole", Principal = { AWS = var.publisher_principal_arn }
+    Effect = "Allow", Action = "sts:AssumeRole", Principal = { AWS = local.publisher_principal_arn }
   }] })
+  lifecycle {
+    precondition {
+      condition     = can(regex("^arn:[^:]+:iam::[0-9]{12}:(user|role)/.+$", local.publisher_principal_arn))
+      error_message = "Deploy using an IAM user or assumed IAM role, not account root or a federated-user session."
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "publisher" {
@@ -53,7 +59,7 @@ locals {
     start-analysis = [
       { Effect = "Allow", Action = ["kinesis:DescribeStream", "kinesis:DescribeStreamSummary", "kinesis:GetRecords", "kinesis:GetShardIterator", "kinesis:ListShards"], Resource = aws_kinesis_stream.events.arn },
       { Effect = "Allow", Action = ["states:StartExecution"], Resource = "${local.prefix}:states:${var.region}:${local.account}:stateMachine:${var.name}-security-analysis" },
-      { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${aws_s3_bucket.results.arn}/aws/lambda/*" },
+      { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${aws_s3_bucket.results.arn}/*" }, # ponytail: Lambda's create-time PutObject probe key is outside aws/lambda/*; narrow once the probe key is known.
       { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation"], Resource = aws_s3_bucket.results.arn }
     ]
     analyze-and-store = [

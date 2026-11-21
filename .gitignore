@@ -24,6 +24,7 @@ mais-ui-img.png
 _old/
 
 # AWS build artifacts, Terraform state and local configuration
+.env
 aws/build/
 aws/terraform/.terraform/
 *.tfstate

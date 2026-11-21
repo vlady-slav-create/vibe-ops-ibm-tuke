@@ -3,7 +3,7 @@
 set -eu
 umask 077
 directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-private="$directory/private"
+private="${EXPORT_PRIVATE_DIR:-$directory/private}"
 temporary=$(mktemp "$private/.event.XXXXXX")
 trap 'rm -f "$temporary" "$temporary.final"' EXIT HUP INT TERM
 # Remove old output so failed filtering cannot leave a stale publishable event.

@@ -28,7 +28,9 @@ Only sanitized findings leave the host; raw captures stay local.
 
 ## Agent robustness and cost controls
 
-`single` remains the default. All report-producing agents use Strands structured
+Each snapshot fans out to `single`, `orchestrator`, and `graph` in three independent
+workflow executions. All receive the same evidence and event-pinned baseline;
+one mode failing does not cancel the others. All report-producing agents use Strands structured
 output backed by the existing JSON Schema; evidence citation checks still run
 after generation. Invalid, truncated, or budget-exhausted reports are not published.
 Single requests allow two turns and one failed structured-output attempt;
@@ -55,15 +57,19 @@ model-extracted memories as authoritative scan baselines or action permissions.
 
 ## Local demo
 
-Docker Compose and Python 3 required. Commands assume clone at
-`/workspaces/project/vibe-ops-ibm-tuke`.
+Make, Docker Compose and Python 3 required. Run all commands from the root of your
+cloned repository.
 
 ```bash
-cd /workspaces/project/vibe-ops-ibm-tuke
-sh /workspaces/project/vibe-ops-ibm-tuke/certs/make-certs.sh
-docker compose up -d server mitmproxy
-python3 /workspaces/project/vibe-ops-ibm-tuke/tools/traffic.py -n 5
+make compose
+python3 tools/traffic.py -n 5
 ```
+
+Compose generates the demo's self-signed certificate before starting the server.
+`make compose` first runs Compose `down`, then rebuilds and starts services.
+Cleanup preserves volumes, including captures and unpublished events.
+Proxy stays running; every 60 seconds, new completed traffic triggers an offline
+ZAP scan and sanitized event generation. No separate capture or scan commands.
 
 | Address | Role |
 | --- | --- |
@@ -76,42 +82,39 @@ accepts any non-empty credentials. Do not expose this intentionally insecure dem
 publicly. Raw HAR contains credentials; never upload it or raw ZAP reports.
 
 Keep `EXPORT_EVENTS=0` (default); legacy per-exchange export is not needed.
-Stop with `docker compose down`.
+Stop with `make compose-down` (also stops an enabled publisher).
 
 ### Capture and offline ZAP scan
 
-Run on a Docker-capable host; Dev Container has no Docker socket. Local conversion
-also requires jq 1.6+ and `sha256sum` (GNU coreutils). After generating traffic above:
+Run on a Docker-capable host; Dev Container has no Docker socket. Compose includes
+all scanner/conversion dependencies. `SCAN_INTERVAL` (default `60` seconds) and
+`CAPTURE_MAX_FLOWS` (default `1000`) can be set in `.env` before startup.
 
-```bash
-cd /workspaces/project/vibe-ops-ibm-tuke
-umask 077
-mkdir -p /workspaces/project/vibe-ops-ibm-tuke/zap/private
-chmod 700 /workspaces/project/vibe-ops-ibm-tuke/zap/private
-export ZAP_UID=$(id -u) ZAP_GID=$(id -g)
-# Native HAR export writes on graceful exit; do not use docker kill.
-docker compose stop -t 30 mitmproxy
-docker compose cp mitmproxy:/home/mitmproxy/traffic.har /workspaces/project/vibe-ops-ibm-tuke/zap/private/traffic.har
-chmod 600 /workspaces/project/vibe-ops-ibm-tuke/zap/private/traffic.har
-# Prevent stale report reuse if this scan fails.
-rm -f /workspaces/project/vibe-ops-ibm-tuke/zap/private/report.json
-docker compose --profile zap run --rm zap
-# Run only after ZAP exits successfully.
-sh /workspaces/project/vibe-ops-ibm-tuke/zap/export.sh
-```
+Snapshots use mitmproxy's native HAR exporter and retain the latest completed
+HTTP responses, up to the configured flow count. The proxy stays live while ZAP
+scans an immutable snapshot. Idle periods produce no new scans. Snapshots overlap;
+counts describe the rolling window, not new incidents since the last scan.
+Older flows leave the window; absent alerts do not prove a fix. Failed scans never
+queue an event; the next snapshot retries scanning the current window.
+Flow count is not a byte limit; keep request bodies small. The mitmweb inspection
+view also retains traffic in memory; restart the proxy during long demo sessions.
 
 ZAP 2.17.0 imports HAR without replay, crawling or active scanning. Its container
 has no network or AWS credentials; local scan/conversion makes no cloud/model calls.
-Raw HAR and ZAP reports contain secrets: never upload them to an LLM, cloud storage,
-issue tracker or Git. Keep captures short (HAR accumulates in memory until exit),
-delete raw files after review, and restart mitmproxy before capturing again.
+Raw HAR, ZAP reports, and scan logs stay in the private `capture` Docker volume;
+never upload them to an LLM, cloud storage, issue tracker or Git. Scan details stay
+in `/zap/wrk/scan.log` inside the ZAP container, not Compose logs.
 
-Only sanitized `zap/private/event.json` may be published. It contains numeric rule
+Only sanitized events enter the separate `events` volume. Each contains numeric rule
 IDs, risk/confidence/counts, asset ID, timestamp, SHA-256 event ID and optional
 baseline, not URLs, headers, bodies or matched evidence. Agents cannot infer affected
 endpoints, HTTP/HTTPS exposure or comparable coverage from it. Empty findings do not
-prove safety; require successful ZAP exit and local review. ZAP detects weaknesses,
+prove safety; require local review. ZAP detects weaknesses,
 not arbitrary secret leaks or malicious MITM attribution.
+
+Without AWS publishing, events remain queued locally. At 100 queued events,
+scanning pauses rather than discarding unpublished results. Raw capture and queued
+events survive `docker compose down`; `docker compose down -v` deletes both.
 
 ## AWS deployment
 
@@ -120,91 +123,156 @@ not arbitrary secret leaks or malicious MITM attribution.
 - Terraform >= 1.5, Python 3.12, AWS CLI, Docker with ARM64 buildx support.
 - AWS deployment credentials with service-creation, IAM role-passing, and `bedrock:GetInferenceProfile` permissions.
 - AgentCore Runtime and Bedrock model access in selected region; default `eu-central-1` with Claude Sonnet 4 EU inference profile.
-- Existing IAM user/role for publishing, allowed to assume stack's publisher role.
+- Your existing AWS login, with permission to assume the publisher role created by this stack.
+  Role/SSO deployments also need `iam:GetRole` to resolve the login's underlying IAM role.
+
+**No separate lab role or new IAM user is needed.** Terraform creates the publisher
+role and limits it to `kinesis:PutRecord` on this demo's stream. Your existing user
+or login role is discovered automatically and trusted to assume it. No ARN lookup,
+separate publisher profile, or credentials file is needed. Use the same login for
+deployment and running the demo. An optional `publisher_principal_arn` override is
+only needed if a different existing identity should be trusted. Changing deployment
+identity on a later apply changes this trust unless that override is set.
 
 Use a dedicated demo account. Terraform owns regional Security Hub CSPM enrollment;
 destroying this stack disables it, including imported enrollment. AWS charges apply.
 
+### Roles and Docker credentials
+
+Terraform creates and assigns all application roles; no IAM users or long-lived
+access keys are created. With the default stack name:
+
+| Role | Used by | Permissions |
+|---|---|---|
+| `sniff-lab-publisher` | Local publisher container, through temporary STS credentials | `kinesis:PutRecord` on this stack's stream only |
+| `sniff-lab-security-analysis` | Step Functions | Invoke analysis/report Lambdas and import Security Hub findings |
+| `sniff-lab-agent` | AgentCore Runtime | Pull its ECR image, invoke configured Bedrock models, apply guardrail, write logs |
+| `sniff-lab-start-analysis` | Ingestion Lambda | Read stream, start workflows, write failed-batch destination |
+| `sniff-lab-analyze-and-store` | Analysis Lambda | Invoke AgentCore and read/write report/context objects in S3 |
+| `sniff-lab-publish-findings` | Report Lambda | Read reports from S3 and write logs |
+
+One AgentCore execution role is enough: `single`, `orchestrator`, and `graph` share
+one runtime and need the same AWS permissions. Step Functions has a separate role.
+AWS assumes service roles automatically; their credentials never go to local Docker.
+The AgentCore container receives its runtime role credentials from AWS, not Compose.
+
+`make compose COMPOSE_PROFILES=aws` reads `publisher_role_arn`, `region`, and
+`stream_name` from Terraform outputs, then assumes only the publisher role using
+your existing host login. It passes the resulting temporary access key, secret,
+and session token only to the publisher container. A role ARN alone is not a
+credential. No copying ARNs, configuring another profile, or mounting AWS config.
+Use the Make target rather than bare Compose for this automatic credential setup.
+Run `make terraform-output` to inspect `publisher_role_arn` and `service_role_arns`;
+neither output contains credentials.
+
 ### Deploy with Terraform
 
-1. Create `/workspaces/project/vibe-ops-ibm-tuke/aws/terraform/demo.tfvars` (ignored by Git). Replace publisher ARN:
-
-   ```hcl
-   region                  = "eu-central-1"
-   publisher_principal_arn = "arn:aws:iam::123456789012:role/YourExistingLabRole"
-   analysis_mode           = "single" # single, orchestrator, graph
-   ```
-
-2. Package Lambda and initialize Terraform:
+1. Select the AWS CLI profile you already use. Replace `my-existing-profile` with
+   its name (`default` if you use the default profile). Keep this exported for all
+   deployment commands below:
 
    ```bash
-   sh /workspaces/project/vibe-ops-ibm-tuke/aws/scripts/package.sh
-   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform init
-   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform validate
+   export AWS_PROFILE=my-existing-profile
    ```
+
+   Skip the export if you already use the default credential chain. For SSO, run
+   `aws sso login` for your selected profile first. Region defaults to `eu-central-1`;
+   no tfvars file is required.
+
+2. Preview, then deploy. Apply still requires confirmation:
+
+   ```bash
+   make terraform-plan
+   make terraform-apply
+   ```
+
+   Both targets initialize Terraform and package Lambda automatically. No separate
+   `make package` step. During apply, Terraform creates ECR, builds and pushes the
+   ARM64 runtime image, resolves its digest, and deploys AgentCore and the pipeline
+   in the same apply. Plan does not build images or create AWS resources.
+
+   Docker/buildx, Python, and AWS CLI must be available where Terraform runs.
+   The image build is a Terraform `local-exec` provisioner: source changes trigger
+   a new immutable tag; unchanged sources reuse their image. Interrupted applies
+   reuse an already-pushed tag. ECR login uses temporary Docker config that is
+   removed after the build. The runtime always references an image digest.
 
    If Security Hub is already enabled, import it before applying:
 
    ```bash
-   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform import \
-     -var-file=demo.tfvars aws_securityhub_account.demo \
+   make terraform-init
+   terraform -chdir=aws/terraform import aws_securityhub_account.demo \
      "$(aws sts get-caller-identity --query Account --output text)"
    ```
 
-3. Bootstrap resources, including ECR. Review Terraform's plan before confirming:
-
-   ```bash
-   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform apply -var-file=demo.tfvars
-   ```
-
-4. Build and push runtime image using deployment credentials. Match region to `demo.tfvars`; use a new tag for each build:
-
-   ```bash
-   export AWS_REGION=eu-central-1
-   REPO=$(terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform output -raw ecr_repository_url)
-   REGISTRY=${REPO%%/*}
-   TAG=demo-v1
-   aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
-   docker buildx build --platform linux/arm64 --provenance=false \
-     -f /workspaces/project/vibe-ops-ibm-tuke/aws/agentcore_runtime/Dockerfile \
-     -t "$REPO:$TAG" --push /workspaces/project/vibe-ops-ibm-tuke/aws
-   DIGEST=$(aws ecr describe-images --region "$AWS_REGION" \
-     --repository-name "${REPO#*/}" --image-ids "imageTag=$TAG" \
-     --query 'imageDetails[0].imageDigest' --output text)
-   printf 'image_uri = "%s@%s"\n' "$REPO" "$DIGEST"
-   ```
-
-5. Add printed `image_uri` line to `demo.tfvars`, then deploy runtime and pipeline:
-
-   ```bash
-   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform apply -var-file=demo.tfvars
-   terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform output
-   ```
-
-   Keep `image_uri` in `demo.tfvars`; removing it destroys runtime and stream consumer.
-   For updates, repackage Lambda, push a new image tag, and replace saved digest before applying.
+Run `make` for targets, including `terraform-output`, `terraform-destroy`, `compose`,
+and `compose-down`. Optional overrides use `TF_VAR_region`, other `TF_VAR_*` values,
+or `TFVARS=other.tfvars` (relative to `aws/terraform`). The image build's AWS CLI uses
+the host login, so use the same account/profile as Terraform; provider-only role
+assumption is not forwarded to local commands. An optional `image_uri` override
+uses a prebuilt image and skips the embedded build. Remove legacy `image_uri`
+settings to enable automatic image builds.
 
 ### Use
 
-After [capture and conversion](#capture-and-offline-zap-scan) succeeds, configure
-host AWS CLI profile `sniff-publisher` to assume Terraform's `publisher_role_arn`.
-Set `KINESIS_STREAM_NAME` to output `stream_name` and `AWS_REGION` to deployment region:
+After deployment, start the complete continuous pipeline with the same existing
+AWS login. No separate publisher profile or `.env` setup is needed:
 
 ```bash
-aws kinesis put-record \
-  --stream-name "${KINESIS_STREAM_NAME:?set KINESIS_STREAM_NAME}" \
-  --partition-key demo-portal \
-  --data fileb:///workspaces/project/vibe-ops-ibm-tuke/zap/private/event.json \
-  --region "${AWS_REGION:?set AWS_REGION}" \
-  --profile sniff-publisher --no-cli-pager
+make compose COMPOSE_PROFILES=aws
 ```
 
-Publish sanitized events only; never HAR or raw ZAP reports. Success returns shard/
-sequence IDs, not completed analysis. On failure, retry the same saved event to retain
-its ID for deduplication. Review recommendations in **Security Hub CSPM → Findings**
+Or select your existing profile at invocation:
+
+```bash
+make compose COMPOSE_PROFILES=aws AWS_PROFILE=my-existing-profile
+```
+
+Make reads publisher role ARN, stream name, and region from Terraform outputs,
+then uses host AWS CLI `sts assume-role` to obtain restricted one-hour credentials.
+SSO and host `credential_process` helpers stay on the host. Only the publisher
+receives the temporary credentials; AWS config is never mounted. Neither Terraform
+state nor generated files receive temporary credentials. Output lookup and role
+assumption must succeed before existing containers are stopped; then Compose runs
+`down` followed by `up`. Stream and region from Terraform override old `.env` values.
+
+Terraform targets use the same host credential chain, including
+`AWS_PROFILE=my-existing-profile make terraform-apply`. If role assumption is denied,
+check source-role `sts:AssumeRole` permissions, organization policies, and permission
+boundaries. Terraform cannot bypass those restrictions. Existing deployments should
+remove the old `publisher_principal_arn` tfvars entry to enable identity discovery,
+then run `make terraform-apply` to update trust and add the region output.
+
+Use a least-privilege publisher role with temporary credentials, not deployment/admin
+credentials. Docker administrators can inspect container environment variables;
+do not share Docker access with untrusted users or print `docker compose config`
+with credentials loaded. Temporary credentials expire after one hour and do not
+refresh inside the container; rerun the Make command to obtain a new session.
+Renew your host SSO login first if needed. Raw capture is never
+mounted in the publisher. AWS charges apply; enabling this profile automatically
+uploads sanitized events, including events queued before publishing was enabled.
+
+Publisher retries failures every 10 seconds using the same saved event ID and
+deletes each queued event only after Kinesis accepts it. Delivery is at least once;
+AWS deduplicates by event ID. Kinesis acceptance is not completed analysis.
+Check progress with `docker compose --profile aws logs -f zap publisher`.
+Review recommendations in **Security Hub CSPM → Findings**
 using output `security_hub_console_url`; full reports stay in `results_bucket` S3 bucket.
 Security reviews recommendations; engineers apply fixes and recapture. Missing alerts
 do not auto-close findings, and agents do not perform autonomous remediation.
+
+Finding titles start with `[single]`, `[orchestrator]`, or `[graph]`. Filter
+`GeneratorId` by `sniff-lab/single`, `sniff-lab/orchestrator`, or `sniff-lab/graph`.
+Each finding also carries `ProductFields.analysis_mode` and `ProductFields.event_id`;
+compare matching event IDs because modes finish at different times. Mode-specific
+finding IDs prevent cross-mode overwrites; S3 retains reports under
+`results/<mode>/<event_id>.json`. Continuous scans update findings per mode/asset/fix
+group, not one new finding per snapshot. Older same-mode executions can finish late;
+use S3 event reports for exact snapshot comparisons rather than assuming the console
+shows a synchronized set. All three modes incur model usage for each snapshot;
+allow 2–5 minutes between snapshots for a live demo and monitor service quotas.
+
+When upgrading, remove the obsolete `analysis_mode` setting from existing tfvars.
 
 ### Baselines
 
@@ -215,19 +283,8 @@ All agents receive one precomputed comparison; absent alerts never prove resolut
 Saved results retain original evidence, pinned context and deterministic deltas.
 Automatic baselines assume one demo scan scope per asset, not verified comparability.
 
-For an explicit baseline, save sanitized `event.json` before the next capture:
-
-```bash
-cp /workspaces/project/vibe-ops-ibm-tuke/zap/private/event.json /workspaces/project/vibe-ops-ibm-tuke/zap/private/baseline.json
-```
-
-After a fresh capture and successful ZAP run, convert with the saved baseline, then
-publish the new `event.json` using the command above. Explicit baselines take precedence:
-
-```bash
-sh /workspaces/project/vibe-ops-ibm-tuke/zap/export.sh \
-  /workspaces/project/vibe-ops-ibm-tuke/zap/private/baseline.json
-```
+The continuous pipeline uses these automatic AWS baselines; it does not embed a
+local baseline. Rolling capture windows are not verified comparable scan scopes.
 
 ### Cleanup
 
@@ -235,5 +292,5 @@ Export any needed results, then explicitly empty the results bucket and ECR repo
 The stack refuses to delete them while nonempty. Keep Terraform state until cleanup succeeds.
 
 ```bash
-terraform -chdir=/workspaces/project/vibe-ops-ibm-tuke/aws/terraform destroy -var-file=demo.tfvars
+make terraform-destroy
 ```
