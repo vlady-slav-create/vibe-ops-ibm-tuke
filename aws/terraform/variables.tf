@@ -14,8 +14,8 @@ variable "name" {
 
 variable "model_id" {
   type        = string
-  default     = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
-  description = "Bedrock Converse inference profile ID. Demo defaults to Claude Sonnet 4.5 EU; Terraform resolves profile and destination model ARNs for IAM."
+  default     = "eu.anthropic.claude-sonnet-4-6"
+  description = "Bedrock Converse inference profile ID. Demo defaults to Claude Sonnet 4.6 EU; Terraform resolves profile and destination model ARNs for IAM."
   validation {
     condition     = length(trimspace(var.model_id)) > 0 && !strcontains(var.model_id, "*")
     error_message = "Provide a nonempty inference profile ID without wildcards."
