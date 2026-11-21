@@ -35,7 +35,7 @@ def main():
                         "validate_schema('resultKeys', ['results/graph/' + 'a' * 64 + '.json']); "
                         "assert all(callable(f) for f in (handler, analyze_handler, publish_handler)); "
                         "assert render('remediation.mustache', {'fix': 'Review', 'retest': 'Recapture'}) "
-                        "== 'Fix: Review\\nAcceptance/retest: Recapture'"], cwd=target, check=True)
+                        "== 'Fix: Review'"], cwd=target, check=True)
     with TemporaryDirectory() as directory:
         target = Path(directory)
         for name in ("agentcore_runtime", "contracts"):

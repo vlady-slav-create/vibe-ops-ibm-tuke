@@ -44,7 +44,7 @@ resource "aws_lambda_event_source_mapping" "events" {
   starting_position                  = "TRIM_HORIZON"
   batch_size                         = 1 # One complete scan; bounds structured model output for demo.
   maximum_batching_window_in_seconds = 5
-  maximum_retry_attempts             = 2
+  maximum_retry_attempts             = 0
   maximum_record_age_in_seconds      = 3600
   bisect_batch_on_function_error     = true
   destination_config {

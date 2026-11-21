@@ -15,10 +15,10 @@ def main():
     assert "FindSavedAnalysis" not in states, "Lambda owns result reuse and context repair"
     assert states["AnalyzeAndStore"]["Next"] == "PublishFindings"
     assert states["AnalyzeAndStore"]["Parameters"] == {"mode.$": "$.mode", "events.$": "$.events"}
-    assert "States.TaskFailed" not in states["AnalyzeAndStore"]["Retry"][0]["ErrorEquals"]
+    assert "Retry" not in states["AnalyzeAndStore"]
     publish = states["PublishFindings"]
     assert publish["Type"] == "Parallel" and len(publish["Branches"]) == 1
-    assert publish["Retry"][0]["MaxAttempts"] == 3
+    assert "Retry" not in publish
     assert publish["OutputPath"] == "$[0]"
     branch = publish["Branches"][0]
     tasks = branch["States"]

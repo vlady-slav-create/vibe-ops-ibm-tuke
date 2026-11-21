@@ -34,7 +34,7 @@ SPECIALISTS = {
 
 # Token limits are checked between calls; max_tokens still bounds each response.
 REPORT_LIMITS = {"turns": 2, "output_tokens": 12000, "total_tokens": 60000,
-                 "structured_output_attempts": 1}
+                 "structured_output_attempts": 2}
 ORCHESTRATOR_LIMITS = {**REPORT_LIMITS, "turns": 8, "output_tokens": 24000, "total_tokens": 120000}
 
 
@@ -102,4 +102,4 @@ def bedrock_model():
                                                  messages_ttl=False, tools_ttl=False) if caching else None,
                         guardrail_id=os.environ["GUARDRAIL_ID"], guardrail_version=os.environ["GUARDRAIL_VERSION"],
                         guardrail_latest_message=True, guardrail_redact_input=True,
-                        boto_client_config=Config(read_timeout=90, retries={"mode": "standard", "max_attempts": 2}))
+                        boto_client_config=Config(read_timeout=90, retries={"mode": "standard", "max_attempts": 1}))

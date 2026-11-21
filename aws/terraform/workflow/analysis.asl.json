@@ -8,14 +8,6 @@
       "Resource": "${analyze_and_store_arn}",
       "Parameters": {"mode.$": "$.mode", "events.$": "$.events"},
       "TimeoutSeconds": 310,
-      "Retry": [
-        {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
-          "IntervalSeconds": 5,
-          "BackoffRate": 2,
-          "MaxAttempts": 2
-        }
-      ],
       "Next": "PublishFindings"
     },
     "PublishFindings": {
@@ -53,14 +45,6 @@
           "ImportRejected": {"Type": "Fail", "Error": "SecurityHub.PartialImport", "Cause": "Retry publishing saved analysis; never repeat inference."}
         }
       }],
-      "Retry": [
-        {
-          "ErrorEquals": ["States.TaskFailed", "States.Timeout"],
-          "IntervalSeconds": 10,
-          "BackoffRate": 2,
-          "MaxAttempts": 3
-        }
-      ],
       "OutputPath": "$[0]",
       "End": true
     }

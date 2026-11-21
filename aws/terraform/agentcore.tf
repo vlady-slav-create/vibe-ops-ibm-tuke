@@ -2,6 +2,26 @@ data "aws_bedrock_inference_profile" "analysis" {
   inference_profile_id = var.model_id
 }
 
+# Marketplace subscription for the model, done by the applying identity (needs
+# aws-marketplace:ViewSubscriptions/Subscribe), not the runtime role.
+# ponytail: first model of the profile; all models in a profile share one provider offer.
+locals {
+  foundation_model_id = element(split("/", data.aws_bedrock_inference_profile.analysis.models[0].model_arn), 1)
+}
+
+data "aws_bedrock_foundation_model_agreement_offers" "analysis" {
+  model_id   = local.foundation_model_id
+  offer_type = "PUBLIC"
+}
+
+resource "aws_bedrock_foundation_model_agreement" "analysis" {
+  model_id    = local.foundation_model_id
+  offer_token = data.aws_bedrock_foundation_model_agreement_offers.analysis.offers[0].offer_token
+  lifecycle {
+    ignore_changes = [offer_token]
+  }
+}
+
 resource "aws_ecr_repository" "agent" {
   name                 = "${var.name}-agent"
   image_tag_mutability = "IMMUTABLE"
@@ -78,5 +98,5 @@ resource "aws_bedrockagentcore_agent_runtime" "analysis" {
     idle_runtime_session_timeout = 60
     max_lifetime                 = 600
   }
-  depends_on = [aws_iam_role_policy.agent]
+  depends_on = [aws_iam_role_policy.agent, aws_bedrock_foundation_model_agreement.analysis]
 }

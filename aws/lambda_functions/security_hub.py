@@ -28,7 +28,7 @@ def findings_for(saved, account, region, partition, bucket):
 
     def finding(group, title, description, severity, remediation, fields):
         values = {**context, "group": group, "title": title, "description": description[:1024],
-                  "severity": severity, "remediation": remediation[:1024],
+                  "severity": severity, "remediation": remediation[:512],
                   "fields": [{"key": key, "value": value} for key, value in fields.items()]}
         # Mustache defaults to HTML escaping; ASFF needs JSON string escaping instead.
         return json.loads(render("finding.json.mustache", values,
@@ -59,6 +59,8 @@ def findings_for(saved, account, region, partition, bucket):
         findings.append(finding(item["group"], item["title"], description, severity,
                                 render("remediation.mustache", item),
                                 {"rule_ids": ",".join(sorted(item["rule_ids"])),
+                                 "rule_names": "; ".join(f"{f['rule_id']} {f['name']}" for f in sorted(
+                                     inventory, key=lambda f: f["rule_id"]) if "name" in f) or "not exported",
                                  "instance_count": str(sum(f["instances"] for f in inventory)),
                                  "proposed_owner_role": item["owner_role"],
                                  "priority_rationale": item["rationale"],

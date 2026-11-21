@@ -93,6 +93,11 @@ def main():
     tls = normalize({"source": "network-capture", "event": "tls_client_rejected",
                      "captured_at": raw["captured_at"]})
     validate({"mode": "orchestrator", "events": [tls]})
+    named = {"findings": [{"rule_id": "10021", "risk": 1, "confidence": 2, "instances": 1,
+                          "name": "X-Content-Type-Options Header Missing"}]}
+    validate_schema("snapshot", named)
+    rejected(lambda value: validate_schema("snapshot", value),
+             {"findings": [{**named["findings"][0], "name": "bad<script>"}]})
     print("PASS: JSON Schemas, malformed evidence, sanitization, duplicate rules, hash integrity")
 
 

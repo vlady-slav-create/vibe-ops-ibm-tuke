@@ -65,7 +65,9 @@ class Handler(BaseHTTPRequestHandler):
             result = analyze(events, payload["mode"], bedrock_model(), payload.get("context"))
             self.respond(200, {"mode": payload["mode"], **result})
         except Exception as exc:
-            print(f"analysis failed: {type(exc).__name__}", flush=True)
+            # AWS API error text only (no model/tool content); getattr: non-AWS errors have no response.
+            error = getattr(exc, "response", {}).get("Error", {})
+            print(f"analysis failed: {type(exc).__name__} {error.get('Message', '')}", flush=True)
             self.respond(500, {"error": "analysis failed"})
 
     def log_message(self, *args):

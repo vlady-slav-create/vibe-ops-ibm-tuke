@@ -21,7 +21,8 @@
         "rule_id": {"$ref": "#/$defs/ruleId"},
         "risk": {"type": "integer", "minimum": 0, "maximum": 3},
         "confidence": {"type": "integer", "minimum": 0, "maximum": 4},
-        "instances": {"type": "integer", "minimum": 0, "maximum": 1000000}
+        "instances": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9 ._:/()'\"-]{1,100}$"}
       }
     },
     "snapshot": {

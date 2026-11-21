@@ -67,19 +67,26 @@ services:
       storage:
         condition: service_completed_successfully
 
-  # Simulated client: clear-text login over HTTP, TLS-warning HTTPS, unauthenticated grades call.
+  # Simulated client, runs once per `make compose`: clear-text login over HTTP, TLS-warning HTTPS, unauthenticated grades call.
   client:
     image: curlimages/curl:latest
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        while :; do
-          curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{"username":"student","password":"hunter2"}' http://mitmproxy:8082/login
-          curl -s -o /dev/null http://mitmproxy:8082/api/courses
-          curl -s -o /dev/null http://mitmproxy:8082/api/grades
-          curl -sk -o /dev/null https://mitmproxy:8083/api/schedule
-          sleep "$${TRAFFIC_INTERVAL:-30}"
-        done
+        set -eu
+        # No waiting: any failure exits non-zero and Compose restarts the container (on-failure).
+        hit() {
+          want=$$1; shift
+          got=$$(curl -sS -o /dev/null -w '%{http_code}' "$$@")
+          [ "$$got" = "$$want" ] || { echo "client: $$* returned $$got, expected $$want" >&2; exit 1; }
+        }
+        hit 200 http://mitmproxy:8082/api/health
+        hit 200 -X POST -H 'Content-Type: application/json' -d '{"username":"student","password":"hunter2"}' http://mitmproxy:8082/login
+        hit 200 http://mitmproxy:8082/api/courses
+        hit 401 http://mitmproxy:8082/api/grades
+        hit 200 -k https://mitmproxy:8083/api/schedule
+        echo "client: demo traffic sent"
+    restart: "on-failure:10"  # ponytail: ~10 tries with Compose backoff; raise if startup is slower.
     networks: [lab]
     depends_on: [mitmproxy]
 

@@ -309,12 +309,12 @@ def main():
     records[0]["eventID"] = "shardId-000000000000:123"
     start(records, workflows, "workflow")
     starts = workflows.start_execution.call_args_list[:]
-    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["single", "orchestrator", "graph"]
-    assert len({c.kwargs["name"] for c in starts}) == 3
+    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["single"]
+    assert len({c.kwargs["name"] for c in starts}) == 1
     assert all(json.loads(c.kwargs["input"])["events"] == [event] for c in starts)
     first = starts[0]
     start(records, workflows, "workflow")
-    assert workflows.start_execution.call_args_list[3:] == starts
+    assert workflows.start_execution.call_args_list[1:] == starts
     assert json.loads(first.kwargs["input"]) == {"mode": "single", "events": [event]}
     assert len(first.kwargs["name"]) == 64
     for invalid_keys in [[], ["results/single/../../secret"], [keys[0], keys[0]]]:
@@ -328,11 +328,6 @@ def main():
         {"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution")
     start(records, workflows, "workflow")
     workflows.start_execution.reset_mock()
-    workflows.start_execution.side_effect = [
-        ClientError({"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution"),
-        None, None]
-    start(records, workflows, "workflow")
-    assert workflows.start_execution.call_args_list == starts, "retry must resume missing mode executions"
     workflows.start_execution.side_effect = ClientError(
         {"Error": {"Code": "AccessDeniedException"}}, "StartExecution")
     try:
@@ -365,13 +360,13 @@ def main():
     assert rendered[1]["Title"] == f"[single] {value}"
     assert rendered[1]["ProductFields"]["observation"] == value
     assert rendered[1]["Remediation"]["Recommendation"]["Text"] == (
-        f"Fix: {value}\nAcceptance/retest: {report['work_items'][0]['retest']}")
+        f"Fix: {value}")
     assert f"Observed: {value}\nPriority rationale:" in rendered[1]["Description"]
     special["report"]["summary"] = "x" * 1500
     special["report"]["work_items"][0].update(fix="x" * 500, retest="y" * 500)
     bounded = findings_for(special, *location, "demo-bucket")
     assert len(bounded[0]["Description"]) == 1024
-    assert len(bounded[1]["Remediation"]["Recommendation"]["Text"]) <= 1024
+    assert len(bounded[1]["Remediation"]["Recommendation"]["Text"]) == 505  # fix max 500 fits ASFF 512; retest in ProductFields
     try:
         render("work-item.mustache", {})
     except KeyNotFoundError:

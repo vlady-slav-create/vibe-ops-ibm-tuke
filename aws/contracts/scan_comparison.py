@@ -15,8 +15,9 @@ def compare_scans(events, context=None):
             item["baseline_source"] = "embedded" if event["baseline"] is not None else "s3-context"
             if item["baseline_source"] == "s3-context":
                 item["baseline_event_id"] = previous["event"]["event_id"]
-            before = {f["rule_id"]: f for f in baseline["findings"]}
-            after = {f["rule_id"]: f for f in current["findings"]}
+            # Scanner rule name is a label, not a change; old baselines lack it.
+            before = {f["rule_id"]: {k: v for k, v in f.items() if k != "name"} for f in baseline["findings"]}
+            after = {f["rule_id"]: {k: v for k, v in f.items() if k != "name"} for f in current["findings"]}
             item.update(added=sorted(after.keys() - before.keys()), absent=sorted(before.keys() - after.keys()),
                         changed=sorted(k for k in before.keys() & after.keys() if before[k] != after[k]),
                         unchanged=sorted(k for k in before.keys() & after.keys() if before[k] == after[k]),

@@ -14,6 +14,10 @@ def integer($max):
   | if floor == . and . >= 0 and . <= $max then .
     else error("numeric field out of range") end;
 
+# ZAP's built-in rule title (fixed per rule, not per request). Kept only if it
+# matches a strict allowlist (same pattern as schemas.json ruleName).
+def name_re: "^[A-Za-z0-9 ._:/()'\"-]{1,100}$";
+
 # Validate the restricted snapshot schema, used for both current and baseline.
 # `keys` is sorted by jq, so exact comparisons also reject unexpected fields.
 # Rule IDs stay digit-only strings; risk is 0..3, confidence 0..4 (0 means
@@ -22,11 +26,12 @@ def snapshot:
   if type != "object" or keys != ["findings"] or (.findings | type) != "array"
   then error("invalid snapshot") else . end
   | {findings: [.findings[] |
-      if keys != ["confidence", "instances", "risk", "rule_id"]
+      if (keys - ["name"]) != ["confidence", "instances", "risk", "rule_id"]
       then error("invalid finding fields") else . end
       | {rule_id: (.rule_id | tostring | if test("^[0-9]{1,8}$") then . else error("invalid rule ID") end),
          risk: (.risk | integer(3)), confidence: (.confidence | integer(4)),
-         instances: (.instances | integer(1000000))}]}
+         instances: (.instances | integer(1000000))}
+        + (if has("name") then {name: (.name | if type == "string" and test(name_re) then . else error("invalid rule name") end)} else {} end)]}
   # Keep evidence small and ensure each rule appears only once per snapshot.
   | if (.findings | length) > 50 or
        ([.findings[].rule_id] | length) != ([.findings[].rule_id] | unique | length)
@@ -47,13 +52,15 @@ if (.site | type) != "array" then error("expected ZAP JSON report") else . end
     | .alerts[] |
     {rule_id: (.pluginid | tostring | if test("^[0-9]{1,8}$") then . else error("invalid rule ID") end),
      risk: (.riskcode | integer(3)), confidence: (.confidence | integer(4)),
-     instances: (.count | integer(1000000))}]
+     instances: (.count | integer(1000000))}
+    + ((.name // .alert) | if type == "string" and test(name_re) then {name: .} else {} end)]
 # 3. Merge repeated rule IDs across sites: highest risk, lowest confidence,
 # summed instance counts. Lowest confidence avoids overstating merged evidence.
 # group_by also sorts groups by rule ID for stable output.
 | group_by(.rule_id)
 | {findings: map({rule_id: .[0].rule_id, risk: (map(.risk) | max),
-                  confidence: (map(.confidence) | min), instances: (map(.instances) | add)})}
+                  confidence: (map(.confidence) | min), instances: (map(.instances) | add)}
+                 + (map(.name // empty)[0] | if . == null then {} else {name: .} end))}
 # 4. Validate merged counts/schema against limits before building the event.
 | snapshot
 # 5. Attach fixed asset identity and export timestamp; never infer transport,
