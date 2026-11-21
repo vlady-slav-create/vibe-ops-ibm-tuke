@@ -3,8 +3,12 @@ set -eu
 cd "$(dirname "$0")/.."
 mkdir -p build
 python3 -m venv --clear build/venv
-build/venv/bin/python -m pip install --quiet -r requirements.txt
-site_packages=$(build/venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+# Lambda is python3.12 on linux x86_64: fetch those wheels whatever the host OS/Python is.
+site_packages=$PWD/build/pkg
+rm -rf "$site_packages"
+build/venv/bin/python -m pip install --quiet -r requirements.txt --target "$site_packages" \
+  --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 --python-version 3.12 \
+  --implementation cp --only-binary=:all:
 cp -R lambda_functions contracts "$site_packages/"
 build/venv/bin/python - "$site_packages" "$PWD/build/lambda_functions.zip" <<'PY'
 import sys
