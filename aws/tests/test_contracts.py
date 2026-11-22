@@ -7,6 +7,9 @@ from jsonschema import Draft202012Validator
 
 from contracts.evidence import normalize, validate
 from contracts.schema import SCHEMA, validate_schema
+from contracts.security_report import expected_items, validate_report
+from agentcore_runtime.report_output import SecurityReport, report_from
+from unittest.mock import Mock
 
 
 def rejected(action, value):
@@ -98,6 +101,26 @@ def main():
     validate_schema("snapshot", named)
     rejected(lambda value: validate_schema("snapshot", value),
              {"findings": [{**named["findings"][0], "name": "bad<script>"}]})
+    # Citation failures name the failed check (never model text); required list is deterministic.
+    scan = {"event": "zap_scan", "event_id": "a" * 64, "current": {"findings": [
+        {"rule_id": "10021"}, {"rule_id": "10035"}, {"rule_id": "10036"}]}}
+    assert expected_items([scan]) == {("a" * 64, "security-headers"): {"10021", "10035"}, ("a" * 64, "other"): {"10036"}}
+    item = {"event_id": "a" * 64, "group": "other", "rule_ids": ["10036"], "title": "t", "severity": "LOW",
+            "rationale": "r", "owner_role": "o", "observation": "b", "hypothesis": "h", "fix": "f",
+            "retest": "t", "limitations": "l"}
+    for bad, reason in (({**item, "rule_ids": ["10036", "10112"]}, "rule_ids differ"),
+                        ({**item, "group": "cookie-hardening"}, "unknown event_id or group")):
+        try:
+            validate_report({"summary": "s", "work_items": [bad]}, [scan])
+        except ValueError as exc:
+            assert reason in str(exc), exc
+        else:
+            raise AssertionError("bad citation accepted")
+    # Model-supplied rule_ids are overwritten from evidence; a wrong group still fails.
+    wrong = SecurityReport(summary="s", work_items=[{**item, "rule_ids": ["10036", "10112"]},
+        {**item, "group": "security-headers", "rule_ids": ["10021"]}])
+    done = report_from(Mock(stop_reason="end_turn", structured_output=wrong), [scan])
+    assert [i["rule_ids"] for i in done["work_items"]] == [["10036"], ["10021", "10035"]]
     print("PASS: JSON Schemas, malformed evidence, sanitization, duplicate rules, hash integrity")
 
 

@@ -60,7 +60,8 @@ def observe(agent):
                    if key in {"inputTokens", "outputTokens", "totalTokens", "cacheReadInputTokens", "cacheWriteInputTokens"}
                    and type(value) in {int, float}}
         stop = result.stop_reason if result is not None else "error"
-        metrics.update(event="agent_metrics", agent=agent.name, tool_failures=tool_failures,
+        # stop_reason is a fixed enum string (end_turn, guardrail_intervened, limit_*), never model text.
+        metrics.update(event="agent_metrics", agent=agent.name, tool_failures=tool_failures, stop_reason=stop,
                        elapsed_ms=round((time.monotonic() - started) * 1000),
                        outcome="limited" if stop.startswith("limit_") else "complete" if stop in {"end_turn", "tool_use"} else "error")
         print(json.dumps(metrics), flush=True)
@@ -83,13 +84,15 @@ def bound_calls(agent, maximum):
     agent.hooks.add_callback(BeforeModelCallEvent, check)
 
 
-def specialist(name, model, messages=None):
+def specialist(name, model, messages=None, review=None):
     skill = load_skill(SPECIALISTS[name])
     plugin = AgentSkills(skills=[skill], strict=True)
+    prompt = RULES + f"\nActivate {skill.name} with skills before reviewing evidence; follow its instructions."
+    if review:
+        prompt += "\nFINAL RESPONSE: call Review with capped findings and gaps; no prose outside it."
     agent = Agent(model=model, name=name, description=skill.description, messages=messages,
-                  callback_handler=None, plugins=[plugin],
-                  system_prompt=RULES + f"\nActivate {skill.name} with skills before reviewing evidence; follow its instructions.")
-    bound_calls(agent, 2)
+                  callback_handler=None, plugins=[plugin], structured_output_model=review, system_prompt=prompt)
+    bound_calls(agent, 3 if review else 2)  # review: skill activation, then findings, one retry
     return observe(agent), plugin
 
 

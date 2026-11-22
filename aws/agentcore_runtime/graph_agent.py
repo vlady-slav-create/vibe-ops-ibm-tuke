@@ -5,14 +5,14 @@ from strands.multiagent import GraphBuilder
 from strands.multiagent.base import Status
 
 from agentcore_runtime.bedrock_analysis import REPORT, RULES, SPECIALISTS, bound_calls, load_skill, specialist, observe
-from agentcore_runtime.report_output import SecurityReport, report_from
+from agentcore_runtime.report_output import Review, SecurityReport, report_from
 
 def analyze(events, model, evidence):
     builder = GraphBuilder()
     reviewers = {}
 
     for name in SPECIALISTS:
-        reviewer, plugin = specialist(name, model)
+        reviewer, plugin = specialist(name, model, review=Review)
         reviewers[name] = (reviewer, plugin)
         builder.add_node(reviewer, name)
         builder.set_entry_point(name)
@@ -20,7 +20,7 @@ def analyze(events, model, evidence):
     summarizer = observe(Agent(model=model, name="summarizer", callback_handler=None,
                        structured_output_model=SecurityReport,
                        system_prompt=RULES + "\n" + load_skill("security-coordination").instructions + "\n" + REPORT))
-    bound_calls(summarizer, 2)
+    bound_calls(summarizer, 3)  # report + 2 structured-output retries; single mode allows the same
     builder.add_node(summarizer, "summarizer")
     for name in reviewers:
         builder.add_edge(name, "summarizer")
@@ -34,7 +34,8 @@ def analyze(events, model, evidence):
         for name, (reviewer, plugin) in reviewers.items():
             review = graph.state.results.get(name)
             if (review is None or review.status != Status.COMPLETED or
-                    review.result.stop_reason != "end_turn" or not str(review).strip() or
+                    review.result.stop_reason not in {"end_turn", "tool_use"} or
+                    not isinstance(review.result.structured_output, Review) or
                     SPECIALISTS[name] not in plugin.get_activated_skills(reviewer)):
                 raise RuntimeError("specialist review failed or required skill was not activated")
 

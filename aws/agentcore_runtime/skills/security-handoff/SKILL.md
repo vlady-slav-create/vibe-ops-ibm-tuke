@@ -28,14 +28,19 @@ creation or notification. No HTML, remote images or external links.
 Empty findings still require coverage limits and next decision, not an all-clear.
 Keep report concise, with no raw traffic or fabricated evidence.
 FINAL RESPONSE: call SecurityReport with this object; no Markdown fences or prose outside it:
-{"summary":"Decision brief, next decision, blockers and specialist disagreement (max 1500 chars)",
+{"summary":"Decision brief, next decision, blockers and specialist disagreement (max 600 chars)",
  "work_items":[{"event_id":"full input event ID","group":"cookie-hardening",
  "rule_ids":["10010"],"title":"max 120 chars","severity":"LOW",
- "rationale":"priority rationale, max 400 chars","owner_role":"proposed role, max 100 chars",
- "observation":"observed evidence, max 500 chars","hypothesis":"explicitly unverified, max 400 chars",
+ "rationale":"priority rationale, max 300 chars","owner_role":"proposed role, max 80 chars",
+ "observation":"observed evidence, max 450 chars","hypothesis":"explicitly unverified, max 400 chars",
  "fix":"concrete fix, max 500 chars","retest":"acceptance checks, max 500 chars",
  "limitations":"missing evidence and remaining human decision, max 500 chars"}]}
 Use plain text in string fields, no line breaks. Severity: INFORMATIONAL, LOW, MEDIUM or HIGH.
+Write for an engineer who has not read the scan: plain words, short sentences, no event ID
+prefixes or field labels inside values (no "Hypothesis:" or "Event 23fe0303:"). Name each rule
+by ZAP title, not only number. fix: imperative steps naming what to change and where, e.g.
+"Add header X-Content-Type-Options: nosniff in the reverse proxy for all responses".
+retest: numbered checks a human can run. Event IDs belong in event_id only.
 For EACH ZAP event group ALL current rule IDs exactly once, using these fixed shared-fix groups:
 cookie-hardening: 10010,10011,10054; security-headers: 10020,10021,10035,10038;
 url-exposure: 10024; other: all unknown rules. Exactly one item per nonempty group per event.

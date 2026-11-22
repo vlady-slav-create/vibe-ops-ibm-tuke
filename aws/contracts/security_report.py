@@ -14,20 +14,29 @@ def group_for(rule):
     return next((group for group, rules in GROUPS.items() if rule in rules), "other")
 
 
-def validate_report(report, events):
-    validate_schema("report", report)
-    items = report["work_items"]
+def expected_items(events):
+    """Deterministic work queue: one item per (event_id, group) with every current rule of that group."""
     expected = {}
     for event in events:
         if event["event"] == "zap_scan":
             for finding in event["current"]["findings"]:
                 expected.setdefault((event["event_id"], group_for(finding["rule_id"])), set()).add(finding["rule_id"])
+    return expected
+
+
+def validate_report(report, events):
+    validate_schema("report", report)
+    expected = expected_items(events)
     seen = set()
-    for item in items:
+    for item in report["work_items"]:
         identity = (item["event_id"], item["group"])
-        rules = item["rule_ids"]
-        if identity in seen or identity not in expected or set(rules) != expected[identity]:
-            raise ValueError("invalid or missing evidence citations")
+        # Reasons name the failed check only, never model text.
+        if identity in seen:
+            raise ValueError("invalid or missing evidence citations: duplicate group")
+        if identity not in expected:
+            raise ValueError("invalid or missing evidence citations: unknown event_id or group")
+        if set(item["rule_ids"]) != expected[identity]:
+            raise ValueError("invalid or missing evidence citations: rule_ids differ from group rules")
         seen.add(identity)
     if seen != expected.keys():
         raise ValueError("work queue must cover every current rule group")

@@ -24,7 +24,7 @@ from contracts.security_report import validate_report
 from lambda_functions.analyze_and_store import process
 from lambda_functions.publish_findings import process as publish
 from lambda_functions.start_analysis import process as start
-from lambda_functions.security_hub import findings_for, render
+from lambda_functions.security_hub import clip, findings_for, render
 
 
 def main():
@@ -60,7 +60,7 @@ def main():
     }]}
     validate_report(report, [event])
     invalid = copy.deepcopy(report)
-    invalid["work_items"][0]["rule_ids"] = ["99999"]
+    invalid["work_items"][0]["event_id"] = "f" * 64  # invented event: no rule_ids overwrite can fix it
     try:
         validate_report(invalid, [event])
     except ValueError:
@@ -154,6 +154,11 @@ def main():
             if f"Activate {skill_name}" in prompt:
                 if not any("toolResult" in block for message in kwargs["messages"] for block in message["content"]):
                     return activate(skill_name)
+                if "Review" in {t["toolSpec"]["name"] for t in kwargs["toolConfig"]["tools"]}:  # graph reviewers
+                    return {"stopReason": "tool_use", "output": {"message": {"role": "assistant", "content": [
+                        {"toolUse": {"toolUseId": "review", "name": "Review", "input": {"findings": [
+                            {"event_id": event["event_id"], "rule_ids": ["10021"], "assessment": "supported",
+                             "note": skill_name}], "gaps": []}}}]}}}
                 return {"stopReason": "end_turn", "output": {"message": {"role": "assistant", "content": [
                     {"text": skill_name + " review"}]}}}
         return output(report)
@@ -170,7 +175,7 @@ def main():
     for skill_name in ("application-security-review", "evidence-quality-review"):
         specialist_calls = [call for call in calls if f"Activate {skill_name}" in json.dumps(call["system"])]
         assert len(specialist_calls) == 2
-        assert {t["toolSpec"]["name"] for t in specialist_calls[0]["toolConfig"]["tools"]} == {"skills"}
+        assert {t["toolSpec"]["name"] for t in specialist_calls[0]["toolConfig"]["tools"]} == {"skills", "Review"}
         skill_results = [block["toolResult"] for message in specialist_calls[1]["messages"]
                          for block in message["content"] if "toolResult" in block]
         assert any(load_skill(skill_name).instructions in block.get("text", "")
@@ -195,6 +200,9 @@ def main():
         client.converse.assert_not_called()
     def skip_activation(**kwargs):
         if "Activate " in json.dumps(kwargs["system"]):
+            if "Review" in {t["toolSpec"]["name"] for t in kwargs["toolConfig"]["tools"]}:
+                return {"stopReason": "tool_use", "output": {"message": {"role": "assistant", "content": [
+                    {"toolUse": {"toolUseId": "review", "name": "Review", "input": {"findings": [], "gaps": []}}}]}}}
             return {"stopReason": "end_turn", "output": {"message": {"role": "assistant",
                     "content": [{"text": "Review without activating skill."}]}}}
         return agent_response(**kwargs)
@@ -309,13 +317,13 @@ def main():
     records[0]["eventID"] = "shardId-000000000000:123"
     start(records, workflows, "workflow")
     starts = workflows.start_execution.call_args_list[:]
-    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["single"]
+    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["graph"]
     assert len({c.kwargs["name"] for c in starts}) == 1
     assert all(json.loads(c.kwargs["input"])["events"] == [event] for c in starts)
     first = starts[0]
     start(records, workflows, "workflow")
     assert workflows.start_execution.call_args_list[1:] == starts
-    assert json.loads(first.kwargs["input"]) == {"mode": "single", "events": [event]}
+    assert json.loads(first.kwargs["input"]) == {"mode": "graph", "events": [event]}
     assert len(first.kwargs["name"]) == 64
     for invalid_keys in [[], ["results/single/../../secret"], [keys[0], keys[0]]]:
         try:
@@ -336,7 +344,7 @@ def main():
         pass
     else:
         raise AssertionError("workflow start failure swallowed")
-    assert json.loads(first.kwargs["input"]) == {"mode": "single", "events": [event]}
+    assert json.loads(first.kwargs["input"]) == {"mode": "graph", "events": [event]}
     try:
         publish(["outside/results.json"], s3, "demo-bucket", *location)
     except ValueError:
@@ -361,11 +369,16 @@ def main():
     assert rendered[1]["ProductFields"]["observation"] == value
     assert rendered[1]["Remediation"]["Recommendation"]["Text"] == (
         f"Fix: {value}")
-    assert f"Observed: {value}\nPriority rationale:" in rendered[1]["Description"]
-    special["report"]["summary"] = "x" * 1500
-    special["report"]["work_items"][0].update(fix="x" * 500, retest="y" * 500)
+    assert f"What was found: {value}\n\nWhy it matters:" in rendered[1]["Description"]
+    # Schema maxima must fit ASFF limits untouched: valid reports never need cutting.
+    item = special["report"]["work_items"][0]
+    item.update(rationale="r" * 300, owner_role="o" * 80, observation="b" * 450, fix="x" * 500)
+    special["report"]["summary"] = "s" * 600
     bounded = findings_for(special, *location, "demo-bucket")
-    assert len(bounded[0]["Description"]) == 1024
+    assert "\u2026" not in bounded[1]["Description"] and "\u2026" not in bounded[1]["Remediation"]["Recommendation"]["Text"]
+    assert len(bounded[1]["Description"]) <= 1024 and len(bounded[0]["Description"]) <= 1024
+    assert clip("word " * 300, 1024).endswith("word\u2026") and len(clip("word " * 300, 1024)) <= 1024
+    assert clip("x" * 600, 512) == "x" * 511 + "\u2026"
     assert len(bounded[1]["Remediation"]["Recommendation"]["Text"]) == 505  # fix max 500 fits ASFF 512; retest in ProductFields
     try:
         render("work-item.mustache", {})

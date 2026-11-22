@@ -22,15 +22,16 @@ resource "aws_cloudwatch_log_group" "pipeline" {
 }
 
 resource "aws_lambda_function" "pipeline" {
-  for_each         = local.pipeline_tasks
-  function_name    = "${var.name}-${each.key}"
-  role             = aws_iam_role.pipeline[each.key].arn
-  runtime          = "python3.12"
-  handler          = "lambda_functions.${each.value.handler}.handler"
-  filename         = "${path.module}/../build/lambda_functions.zip"
-  source_code_hash = filebase64sha256("${path.module}/../build/lambda_functions.zip")
-  timeout          = each.value.timeout
-  memory_size      = 256
+  for_each      = local.pipeline_tasks
+  function_name = "${var.name}-${each.key}"
+  role          = aws_iam_role.pipeline[each.key].arn
+  runtime       = "python3.12"
+  handler       = "lambda_functions.${each.value.handler}.handler"
+  filename      = "${path.module}/../build/lambda_functions.zip"
+  # code_sha256 is compared with deployed CodeSha256, so out-of-band or drifted code is redeployed too.
+  code_sha256 = filebase64sha256("${path.module}/../build/lambda_functions.zip")
+  timeout     = each.value.timeout
+  memory_size = 256
   environment {
     variables = each.value.environment
   }

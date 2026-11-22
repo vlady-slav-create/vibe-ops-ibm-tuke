@@ -16,6 +16,16 @@ def render(name, context, escape=str):
     return pystache.Renderer(escape=escape, missing_tags="strict").render(template, context).rstrip("\n")
 
 
+def clip(text, limit):
+    """Fit ASFF length limits at a word boundary with an ellipsis, never mid-word."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit - 1]
+    # Break at the last space if close to the end; else hard cut (one huge token keeps its content).
+    space = max(head.rfind(" "), head.rfind("\n"))
+    return (head[:space] if space > limit - 80 else head).rstrip(" ,;:\n") + "…"
+
+
 def findings_for(saved, account, region, partition, bucket):
     """Stable IDs per mode/asset/fix group; no workflow changes or auto-resolution."""
     report = validate_report(saved["report"], saved["evidence"])
@@ -27,8 +37,8 @@ def findings_for(saved, account, region, partition, bucket):
                "analyzed_at": saved["analyzed_at"]}
 
     def finding(group, title, description, severity, remediation, fields):
-        values = {**context, "group": group, "title": title, "description": description[:1024],
-                  "severity": severity, "remediation": remediation[:512],
+        values = {**context, "group": group, "title": title, "description": clip(description, 1024),
+                  "severity": severity, "remediation": clip(remediation, 512),
                   "fields": [{"key": key, "value": value} for key, value in fields.items()]}
         # Mustache defaults to HTML escaping; ASFF needs JSON string escaping instead.
         return json.loads(render("finding.json.mustache", values,
@@ -55,7 +65,7 @@ def findings_for(saved, account, region, partition, bucket):
         inventory = [f for f in event["current"]["findings"] if f["rule_id"] in item["rule_ids"]]
         # Do not promote groups classified entirely as false positive to exposure.
         severity = item["severity"] if any(f["confidence"] > 0 for f in inventory) else "INFORMATIONAL"
-        description = render("work-item.mustache", {**item, "limits": limits})
+        description = render("work-item.mustache", item)
         findings.append(finding(item["group"], item["title"], description, severity,
                                 render("remediation.mustache", item),
                                 {"rule_ids": ",".join(sorted(item["rule_ids"])),
