@@ -1,6 +1,7 @@
 """AgentCore HTTP contract and explicit single/orchestrator/graph dispatch."""
 import json
 import logging
+import faulthandler
 import time
 import traceback
 from pathlib import Path
@@ -67,10 +68,14 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, KeyError):
             self.respond(400, {"error": "invalid evidence"})
             return
+        # A hung request prints every thread's call sites (file/line/function only) after 120 s, then repeats never.
+        faulthandler.dump_traceback_later(120, exit=False)
         try:
             result = analyze(events, payload["mode"], bedrock_model(), payload.get("context"))
+            faulthandler.cancel_dump_traceback_later()
             self.respond(200, {"mode": payload["mode"], **result})
-        except BaseException as exc:  # CancelledError and SystemExit are not Exception; log them too.
+        except BaseException as exc:
+            faulthandler.cancel_dump_traceback_later()  # CancelledError and SystemExit are not Exception; log them too.
             # Walk wrapped causes (Strands wraps hook errors in EventLoopException). Own RuntimeError/ValueError
             # texts are fixed strings or schema path + rule, never values; AWS errors add only the service message.
             chain, err = [], exc

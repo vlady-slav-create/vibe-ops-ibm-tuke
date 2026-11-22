@@ -317,13 +317,13 @@ def main():
     records[0]["eventID"] = "shardId-000000000000:123"
     start(records, workflows, "workflow")
     starts = workflows.start_execution.call_args_list[:]
-    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["graph"]
+    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["orchestrator"]
     assert len({c.kwargs["name"] for c in starts}) == 1
     assert all(json.loads(c.kwargs["input"])["events"] == [event] for c in starts)
     first = starts[0]
     start(records, workflows, "workflow")
     assert workflows.start_execution.call_args_list[1:] == starts
-    assert json.loads(first.kwargs["input"]) == {"mode": "graph", "events": [event]}
+    assert json.loads(first.kwargs["input"]) == {"mode": "orchestrator", "events": [event]}
     assert len(first.kwargs["name"]) == 64
     for invalid_keys in [[], ["results/single/../../secret"], [keys[0], keys[0]]]:
         try:
@@ -344,7 +344,7 @@ def main():
         pass
     else:
         raise AssertionError("workflow start failure swallowed")
-    assert json.loads(first.kwargs["input"]) == {"mode": "graph", "events": [event]}
+    assert json.loads(first.kwargs["input"]) == {"mode": "orchestrator", "events": [event]}
     try:
         publish(["outside/results.json"], s3, "demo-bucket", *location)
     except ValueError:

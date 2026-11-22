@@ -6,7 +6,7 @@ from pathlib import Path
 
 from botocore.config import Config
 from strands.models import BedrockModel
-from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, AfterInvocationEvent, AfterToolCallEvent
+from strands.hooks import AfterModelCallEvent, BeforeInvocationEvent, BeforeModelCallEvent, AfterInvocationEvent, AfterToolCallEvent, BeforeToolCallEvent
 from strands.models.model import CacheConfig
 from strands import Agent
 from strands.vended_plugins.skills import AgentSkills
@@ -51,6 +51,12 @@ def observe(agent):
         nonlocal tool_failures
         if event.result.get("status") != "success":
             tool_failures += 1
+            name = event.tool_use["name"]
+            if name in {"SecurityReport", "Review"}:
+                # Pydantic msg + our schema path/validator only; input values are never in this text.
+                text = "".join(block.get("text", "") for block in event.result.get("content", []))
+                print(json.dumps({"event": "structured_output_invalid", "agent": agent.name or "", "tool": name,
+                                  "errors": text[:1000]}), flush=True)
 
     def record(event):
         result = event.result
@@ -66,6 +72,17 @@ def observe(agent):
                        outcome="limited" if stop.startswith("limit_") else "complete" if stop in {"end_turn", "tool_use"} else "error")
         print(json.dumps(metrics), flush=True)
 
+    def stage(label):
+        # Fixed labels and agent/tool names only: no model or tool content.
+        def mark(event):
+            tool = event.tool_use["name"] if hasattr(event, "tool_use") else ""
+            print(json.dumps({"event": "stage", "agent": agent.name or "", "stage": label, "tool": tool,
+                              "elapsed_ms": round((time.monotonic() - started) * 1000)}), flush=True)
+        return mark
+
+    for hook, label in ((BeforeModelCallEvent, "model_start"), (AfterModelCallEvent, "model_end"),
+                         (BeforeToolCallEvent, "tool_start"), (AfterToolCallEvent, "tool_end")):
+        agent.hooks.add_callback(hook, stage(label))
     agent.hooks.add_callback(BeforeInvocationEvent, begin)
     agent.hooks.add_callback(AfterInvocationEvent, record)
     agent.hooks.add_callback(AfterToolCallEvent, tool_result)

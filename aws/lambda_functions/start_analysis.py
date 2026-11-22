@@ -16,7 +16,7 @@ def process(records, workflows, workflow_arn):
         if len(data) > 16384:
             raise ValueError("record too large")
         event = json.loads(data)
-        for mode in ("graph",):  # ponytail: isolating graph; restore ("single", "orchestrator", "graph") to fan out.
+        for mode in ("orchestrator",):  # ponytail: isolating orchestrator; restore ("single", "orchestrator", "graph") to fan out.
             payload = {"mode": mode, "events": [event]}
             validate(payload)
             # Separate executions run concurrently; retries resume partial fanout.
