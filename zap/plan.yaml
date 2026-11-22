@@ -1,5 +1,5 @@
 # Standard ZAP Automation Framework plan: import local HAR, run passive checks,
-# then write JSON report; no crawling or active scanning configured.
+# then write JSON (pipeline), Markdown and HTML (demo) reports; no crawling or active scanning.
 # Configuration reference: https://www.zaproxy.org/docs/desktop/addons/automation-framework/
 env:
   contexts:
@@ -29,4 +29,17 @@ jobs:
       template: traditional-json
       reportDir: /zap/wrk
       reportFile: report.json
+      displayReport: false
+  # Human-readable reports for the demo; raw URLs/evidence, so they stay in the private volume.
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: /zap/wrk
+      reportFile: report.md
+      displayReport: false
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk
+      reportFile: report.html
       displayReport: false

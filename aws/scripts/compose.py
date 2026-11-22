@@ -31,8 +31,6 @@ def main():
     # Publisher uses resolved credentials, not the host's profile name.
     for key in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_SECURITY_TOKEN"):
         env.pop(key, None)
-    subprocess.run(["docker", "compose", "--profile", "aws", "down", "--remove-orphans"],
-                   env=env, check=True)
     subprocess.run(["docker", "compose", "up", "-d", "--build"], env=env, check=True)
 
 

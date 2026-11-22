@@ -2,6 +2,9 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
+
+import jq
 
 from jsonschema import Draft202012Validator
 
@@ -23,7 +26,7 @@ def rejected(action, value):
 def main():
     Draft202012Validator.check_schema(SCHEMA)
     raw = {"source": "zap-passive", "event": "zap_scan", "asset_id": "demo-portal",
-           "captured_at": "2026-11-14T00:00:00Z", "baseline": None,
+           "captured_at": "2026-11-14T00:00:00Z",
            "current": {"findings": [{"rule_id": "10010", "risk": 1, "confidence": 2, "instances": 3}]}}
     event = normalize(raw)
     payload = {"mode": "single", "events": [event]}
@@ -31,7 +34,11 @@ def main():
     canonical = json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
     assert event["event_id"] == hashlib.sha256(canonical.encode()).hexdigest()
     assert normalize({**raw, "ignored": "secret"}) == event
-    assert normalize({key: value for key, value in raw.items() if key != "baseline"}) == event
+    exposed = normalize({**raw, "exposure": {"http_requests": 4, "https_requests": 2}})
+    assert exposed["exposure"]["http_requests"] == 4 and validate({"mode": "single", "events": [exposed]})
+    rejected(normalize, {**raw, "exposure": {"http_requests": 4, "https_requests": 2, "url": "x"}})
+    # Severity heuristics stay out of the event; agents infer impact from ZAP findings.
+    rejected(normalize, {**raw, "exposure": {"http_requests": 4, "https_requests": 2, "http_secret_posts": 1}})
     validate_schema("workflowInvocation", payload)
     rejected(lambda value: validate_schema("workflowInvocation", value), {**payload, "events": [event, event]})
     for mode in ("single", "orchestrator", "graph"):
@@ -50,7 +57,7 @@ def main():
     rejected(normalize, bad)
     bad["current"]["findings"][1]["risk"] = 2
     rejected(normalize, bad)  # Different objects, same rule ID: uniqueItems is insufficient.
-    rejected(normalize, {**raw, "baseline": bad["current"]})
+    rejected(validate, {**payload, "events": [{**event, "baseline": None}]})  # Sanitized events carry no baseline.
     bad = copy.deepcopy(payload)
     bad["events"][0]["current"]["findings"][0]["risk"] = 2
     rejected(validate, bad)  # Structurally valid, but evidence hash no longer matches.
@@ -99,6 +106,10 @@ def main():
     named = {"findings": [{"rule_id": "10021", "risk": 1, "confidence": 2, "instances": 1,
                           "name": "X-Content-Type-Options Header Missing"}]}
     validate_schema("snapshot", named)
+    rich = {"findings": [{**named["findings"][0], "paths": ["/login"], "schemes": ["http"], "params": ["token"]}]}
+    validate_schema("snapshot", rich)
+    for key, value in (("paths", ["/secret"]), ("schemes", ["ftp"]), ("params", ["a b"]), ("params", ["deadbeefcafe01"]), ("params", ["k12345"]), ("paths", ["/login?x=1"])):
+        rejected(lambda v: validate_schema("snapshot", v), {"findings": [{**rich["findings"][0], key: value}]})
     rejected(lambda value: validate_schema("snapshot", value),
              {"findings": [{**named["findings"][0], "name": "bad<script>"}]})
     # Citation failures name the failed check (never model text); required list is deterministic.
@@ -121,6 +132,40 @@ def main():
         {**item, "group": "security-headers", "rule_ids": ["10021"]}])
     done = report_from(Mock(stop_reason="end_turn", structured_output=wrong), [scan])
     assert [i["rule_ids"] for i in done["work_items"]] == [["10036"], ["10021", "10035"]]
+    # ZAP export keeps allowlisted paths, schemes and param names; never values, queries or evidence.
+    report = {"site": [{"@name": "http://server:8080", "alerts": [{"pluginid": "10024", "riskcode": "2",
+        "confidence": "2", "count": "2", "name": "Sensitive Information in URL", "instances": [
+            {"uri": "http://server:8080/api/grades?token=s3cr3t", "param": "token", "evidence": "s3cr3t"},
+            {"uri": "http://server:8080/private/x?a=b", "param": "s3cr3t", "evidence": "s3cr3t"},
+            {"uri": "http://server:8080/login?k=leakvalue", "param": "leakvalue"},
+            {"uri": "http://server:8080/login", "param": "a1b2c3d4e5f6a7b8"},
+            {"uri": "http://server:8080/login", "param": "key20261114"}]}]}]}
+    har = {"log": {"entries": [{"request": {"method": "POST", "url": "http://server:8080/login",
+                                            "postData": {"text": '{"password": "s3cr3t"}'}}}]}}
+    export = jq.compile((Path(__file__).parents[2] / "zap" / "findings.jq").read_text(),
+                        args={"captured_at": raw["captured_at"], "har": [har], "tls": [{"tls_client_rejected": 2}], "tls_scan": []})
+    scanned = normalize(export.input_value(report).first())
+    for leak in ("s3cr3t", "private", "leakvalue", "a1b2c3d4e5f6a7b8", "key20261114"):
+        assert leak not in json.dumps(scanned), leak
+    assert scanned["current"]["findings"][0] | {"paths": ["/api/grades", "/login", "[other]"], "schemes": ["http"], "params": ["token"]} \
+        == scanned["current"]["findings"][0]
+    assert scanned["exposure"] == {"http_requests": 1, "https_requests": 0, "tls_client_rejected": 2}
+    # sslyze summary: allowlisted booleans and protocol/cipher names only; raw certificate fields never leave.
+    tls_scan = json.loads((Path(__file__).parent / "sslyze_sample.json").read_text())
+    export = jq.compile((Path(__file__).parents[2] / "zap" / "findings.jq").read_text(),
+                        args={"captured_at": raw["captured_at"], "har": [], "tls": [], "tls_scan": [tls_scan]})
+    tls_event = normalize(export.input_value(report).first())
+    assert tls_event["tls_config"]["self_signed"] is True and tls_event["tls_config"]["chain_trusted_all_stores"] is False
+    assert {"TLS 1.2", "TLS 1.3"} >= set(tls_event["tls_config"]["protocols_accepted"]) and "TLS 1.0" not in tls_event["tls_config"]["protocols_accepted"]
+    for leak in ("CN=server", "2027-11-22", "server.crt", "fingerprint_sha256", "public_bytes"):
+        assert leak not in json.dumps(tls_event), leak
+    rejected(normalize, {**raw, "tls_config": {"scanned": True, "self_signed": "yes", "expired": False, "chain_trusted_all_stores": False,
+                                               "protocols_accepted": [], "accepted_ciphers": []}})
+    # Failed or incomplete scan emits no tls_config (unknown, never safe).
+    unscanned = {**tls_scan, "server_scan_results": [{**tls_scan["server_scan_results"][0], "connectivity_status": "ERROR"}]}
+    failed = jq.compile((Path(__file__).parents[2] / "zap" / "findings.jq").read_text(),
+                        args={"captured_at": raw["captured_at"], "har": [], "tls": [], "tls_scan": [unscanned]})
+    assert "tls_config" not in failed.input_value(report).first()
     print("PASS: JSON Schemas, malformed evidence, sanitization, duplicate rules, hash integrity")
 
 

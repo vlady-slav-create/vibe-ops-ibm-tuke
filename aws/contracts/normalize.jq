@@ -1,6 +1,8 @@
 # Construct allowlisted objects; never copy bodies, headers or query values.
 if .source == "zap-passive" then
-  {source, event, asset_id, captured_at, current, baseline: (.baseline // null)}
+  {source, event, asset_id, captured_at, current} +
+  (if has("exposure") then {exposure} else {} end)
+  + (if has("tls_config") then {tls_config} else {} end)
 else
   {source, event, captured_at} +
   (if .event == "http_exchange" then

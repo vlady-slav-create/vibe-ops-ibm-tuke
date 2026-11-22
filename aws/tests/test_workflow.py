@@ -15,7 +15,8 @@ def main():
     assert "FindSavedAnalysis" not in states, "Lambda owns result reuse and context repair"
     assert states["AnalyzeAndStore"]["Next"] == "PublishFindings"
     assert states["AnalyzeAndStore"]["Parameters"] == {"mode.$": "$.mode", "events.$": "$.events"}
-    assert "Retry" not in states["AnalyzeAndStore"]
+    # Runtime client errors get one retry; Lambda reuses saved results, so no duplicate inference.
+    assert states["AnalyzeAndStore"]["Retry"] == [{"ErrorEquals": ["RuntimeClientError"], "IntervalSeconds": 10, "MaxAttempts": 1}]
     publish = states["PublishFindings"]
     assert publish["Type"] == "Parallel" and len(publish["Branches"]) == 1
     assert "Retry" not in publish
@@ -41,10 +42,9 @@ def main():
     iam = (root / "terraform/iam.tf").read_text()
     workflow_iam = iam.split('resource "aws_iam_role_policy" "workflow"')[1]
     assert '"s3:ListBucket"' not in workflow_iam
-    assert "context/v1/*" in iam
     assert '"securityhub:BatchImportFindings"' in workflow_iam
     assert '"securityhub:BatchImportFindings"' not in iam.split('resource "aws_iam_role" "workflow"')[0]
-    print("PASS: analysis/context handoff, Security Hub import, partial-failure retries, IAM")
+    print("PASS: analysis handoff, Security Hub import, partial-failure retries, IAM")
 
 
 if __name__ == "__main__":

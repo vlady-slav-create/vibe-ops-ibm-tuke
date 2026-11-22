@@ -6,6 +6,7 @@ GROUPS = {
     "cookie-hardening": {"10010", "10011", "10054"},
     "security-headers": {"10020", "10021", "10035", "10038"},
     "url-exposure": {"10024"},
+    "authentication": {"10111", "10112"},
     "other": set(),
 }
 

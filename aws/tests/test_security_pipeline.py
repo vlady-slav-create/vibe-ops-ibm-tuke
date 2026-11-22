@@ -15,21 +15,20 @@ from strands.types.exceptions import EventLoopException
 from pydantic import ValidationError
 from strands.tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 
-from agentcore_runtime.bedrock_analysis import bedrock_model, load_skill
+from agentcore_runtime.bedrock_analysis import ASVS, bedrock_model, load_skill
 from agentcore_runtime.report_output import SecurityReport
-from contracts.scan_comparison import compare_scans
 from agentcore_runtime.http_server import analyze
 from contracts.evidence import normalize
 from contracts.security_report import validate_report
 from lambda_functions.analyze_and_store import process
 from lambda_functions.publish_findings import process as publish
-from lambda_functions.start_analysis import process as start
+from lambda_functions.start_analysis import MODES, process as start
 from lambda_functions.security_hub import clip, findings_for, render
 
 
 def main():
     for name in ("security-analysis", "security-handoff", "security-coordination", "security-orchestration",
-                 "application-security-review", "evidence-quality-review"):
+                 "application-security-review", "evidence-quality-review", "owasp-baseline", *ASVS):
         assert load_skill(name).instructions, f"empty skill: {name}"
     try:
         load_skill("missing-skill")
@@ -45,7 +44,7 @@ def main():
         else:
             raise AssertionError("empty bundled skill accepted")
     event = normalize({"source": "zap-passive", "event": "zap_scan", "asset_id": "demo-portal",
-                       "captured_at": "2026-11-14T00:00:00Z", "baseline": None,
+                       "captured_at": "2026-11-14T00:00:00Z",
                        "current": {"findings": [{"rule_id": "10010", "risk": 1,
                                                  "confidence": 2, "instances": 3}]}})
     report = {"summary": "Review cookie hardening; coverage unknown.", "work_items": [{
@@ -81,7 +80,6 @@ def main():
     assert client.converse.call_count == 1
     assert {t["toolSpec"]["name"] for t in client.converse.call_args.kwargs["toolConfig"]["tools"]} == {"SecurityReport"}
     user_content = client.converse.call_args.kwargs["messages"][0]["content"]
-    assert "Deterministic scan comparison:" in json.dumps(user_content), "comparison missing from single-agent input"
     schema = convert_pydantic_to_tool_spec(SecurityReport)["inputSchema"]["json"]
     assert "$ref" not in json.dumps(schema), "unresolved schema reference"
     assert set(schema["properties"]["work_items"]["items"]["required"]) == set(report["work_items"][0])
@@ -163,9 +161,7 @@ def main():
                     {"text": skill_name + " review"}]}}}
         return output(report)
     client.converse.side_effect = agent_response
-    with patch("agentcore_runtime.http_server.compare_scans", wraps=compare_scans) as comparison:
-        result = analyze([event], "graph", model)
-        comparison.assert_called_once_with([event], None)
+    result = analyze([event], "graph", model)
     assert result["report"] == report
     assert set(result["specialists"]) == {"application_security_reviewer", "evidence_quality_reviewer"}
     calls = [call.kwargs for call in client.converse.call_args_list]
@@ -176,11 +172,12 @@ def main():
         specialist_calls = [call for call in calls if f"Activate {skill_name}" in json.dumps(call["system"])]
         assert len(specialist_calls) == 2
         assert {t["toolSpec"]["name"] for t in specialist_calls[0]["toolConfig"]["tools"]} == {"skills", "Review"}
+        system = json.dumps(specialist_calls[0]["system"])
+        assert "asvs-v9-communication" in system and "9.1.1 [L1" not in system, "ASVS must be listed, not inlined"
         skill_results = [block["toolResult"] for message in specialist_calls[1]["messages"]
                          for block in message["content"] if "toolResult" in block]
         assert any(load_skill(skill_name).instructions in block.get("text", "")
                    for result in skill_results for block in result["content"]), skill_results
-        assert "Deterministic scan comparison:" in json.dumps(specialist_calls[0]["messages"])
     assert all(call["modelId"] == "offline-test" for call in calls)
     assert all(call["guardrailConfig"]["guardrailIdentifier"] == "offline-guardrail" for call in calls), "guardrail not applied"
     for name in ("application_security_reviewer", "evidence_quality_reviewer"):
@@ -189,15 +186,6 @@ def main():
                and event["event_id"] in json.dumps(c["messages"])
                for c in calls), "graph node did not receive original evidence"
 
-    with patch("agentcore_runtime.http_server.compare_scans", side_effect=ValueError("invalid comparison")):
-        client.reset_mock()
-        try:
-            analyze([event], "graph", model)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("graph accepted failed comparison")
-        client.converse.assert_not_called()
     def skip_activation(**kwargs):
         if "Activate " in json.dumps(kwargs["system"]):
             if "Review" in {t["toolSpec"]["name"] for t in kwargs["toolConfig"]["tools"]}:
@@ -249,9 +237,7 @@ def main():
 
     client.reset_mock()
     client.converse.side_effect = orchestrate
-    with patch("agentcore_runtime.http_server.compare_scans", wraps=compare_scans) as comparison:
-        result = analyze([event], "orchestrator", model)
-        comparison.assert_called_once_with([event], None)
+    result = analyze([event], "orchestrator", model)
     assert result["report"] == report
     assert set(result["specialists"]) == {"application_security_reviewer", "evidence_quality_reviewer"}
     assert client.converse.call_count == 6
@@ -273,9 +259,7 @@ def main():
     # Model may choose no specialist: unlike Graph, routing is not mandatory.
     client.reset_mock()
     client.converse.side_effect = agent_response
-    with patch("agentcore_runtime.http_server.compare_scans", wraps=compare_scans) as comparison:
-        assert analyze([event], "orchestrator", model)["specialists"] == {}
-        comparison.assert_called_once_with([event], None)
+    assert analyze([event], "orchestrator", model)["specialists"] == {}
     assert client.converse.call_count == 1
 
     objects = {}
@@ -293,7 +277,7 @@ def main():
     s3.put_object.side_effect = put_object
     runtime = Mock()
     runtime.invoke_agent_runtime.return_value = {"response": io.BytesIO(json.dumps({
-        "mode": "single", "report": report, "specialists": {}, "comparisons": compare_scans([event])}).encode())}
+        "mode": "single", "report": report, "specialists": {}}).encode())}
     records = [{"kinesis": {"data": base64.b64encode(json.dumps(event).encode()).decode()}}]
     args = ([event], s3, runtime, "demo-bucket", "runtime", "single")
     location = ("123456789012", "eu-central-1", "aws")
@@ -309,7 +293,7 @@ def main():
         else:
             raise AssertionError("oversized workflow output accepted")
     assert runtime.invoke_agent_runtime.call_count == 1, "retry repeated inference"
-    assert s3.put_object.call_count == 3
+    assert s3.put_object.call_count == 1
     assert all(c.kwargs["IfNoneMatch"] == "*" for c in s3.put_object.call_args_list)
     assert process(*args)["keys"] == keys
     assert runtime.invoke_agent_runtime.call_count == 1, "saved-result reuse repeated inference"
@@ -317,13 +301,13 @@ def main():
     records[0]["eventID"] = "shardId-000000000000:123"
     start(records, workflows, "workflow")
     starts = workflows.start_execution.call_args_list[:]
-    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == ["single", "orchestrator", "graph"]
-    assert len({c.kwargs["name"] for c in starts}) == 3
+    assert [json.loads(c.kwargs["input"])["mode"] for c in starts] == list(MODES)
+    assert len({c.kwargs["name"] for c in starts}) == len(MODES)
     assert all(json.loads(c.kwargs["input"])["events"] == [event] for c in starts)
     first = starts[0]
     start(records, workflows, "workflow")
-    assert workflows.start_execution.call_args_list[3:] == starts
-    assert json.loads(first.kwargs["input"]) == {"mode": "single", "events": [event]}
+    assert workflows.start_execution.call_args_list[len(MODES):] == starts
+    assert json.loads(first.kwargs["input"]) == {"mode": MODES[0], "events": [event]}
     assert len(first.kwargs["name"]) == 64
     for invalid_keys in [[], ["results/single/../../secret"], [keys[0], keys[0]]]:
         try:
@@ -344,7 +328,7 @@ def main():
         pass
     else:
         raise AssertionError("workflow start failure swallowed")
-    assert json.loads(first.kwargs["input"]) == {"mode": "single", "events": [event]}
+    assert json.loads(first.kwargs["input"]) == {"mode": MODES[0], "events": [event]}
     try:
         publish(["outside/results.json"], s3, "demo-bucket", *location)
     except ValueError:

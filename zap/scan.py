@@ -13,7 +13,8 @@ def scan_once(private=Path("/zap/wrk"), events=Path("/events")):
     if not ready.exists() or len(list(events.glob("*.json"))) >= 100:
         return
     try:
-        (private / "report.json").unlink(missing_ok=True)
+        for name in ("report.json", "report.md", "report.html"):
+            (private / name).unlink(missing_ok=True)
         (private / "event.json").unlink(missing_ok=True)
         # ZAP output can contain raw URLs/evidence; keep logs local too.
         with (private / "scan.log").open("w") as log, tempfile.TemporaryDirectory(dir=private) as home:

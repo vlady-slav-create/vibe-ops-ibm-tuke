@@ -5,7 +5,6 @@ from pathlib import Path
 import pystache
 
 from contracts.security_report import validate_report
-from contracts.scan_comparison import compare_scans
 from contracts.schema import validate_schema
 
 TEMPLATES = Path(__file__).with_name("templates")
@@ -44,21 +43,12 @@ def findings_for(saved, account, region, partition, bucket):
         return json.loads(render("finding.json.mustache", values,
                                  escape=lambda value: json.dumps(value, ensure_ascii=False)[1:-1]))
 
-    limits = "Agent recommendations require human review. Paths, transport and coverage are not exported. Missing alerts never imply resolution."
-    changes = "Baseline unavailable."
-    comparisons = saved.get("comparisons")
-    if comparisons is None:  # Results saved before shared context was introduced.
-        comparisons = compare_scans(saved["evidence"])
-    validate_schema("comparisons", comparisons)
-    delta = next((c for c in comparisons if c["event_id"] == event["event_id"]), None)
-    if delta and delta["baseline_available"]:
-        changes = json.dumps({"added": delta["added"], "absent_not_resolved": delta["absent"],
-                              "changed": delta["changed"]})
+    limits = "Agent recommendations require human review. Request coverage is not exported. Missing alerts never imply resolution."
     # Always show scan decision brief, including empty scans and evidence gaps.
     findings = [finding("scan-review", "Demo scan: security review required",
-                        render("scan-review.mustache", {"summary": report["summary"], "limits": limits, "changes": changes}),
-                        "INFORMATIONAL", "Review evidence and proposed fixes. Confirm comparable capture before closure.",
-                        {"baseline_changes": changes, "decision_brief": report["summary"]})]
+                        render("scan-review.mustache", {"summary": report["summary"], "limits": limits}),
+                        "INFORMATIONAL", "Review evidence and proposed fixes. Confirm request coverage before closure.",
+                        {"decision_brief": report["summary"]})]
     for item in report["work_items"]:
         if item["event_id"] != event["event_id"]:
             continue
@@ -71,6 +61,9 @@ def findings_for(saved, account, region, partition, bucket):
                                 {"rule_ids": ",".join(sorted(item["rule_ids"])),
                                  "rule_names": "; ".join(f"{f['rule_id']} {f['name']}" for f in sorted(
                                      inventory, key=lambda f: f["rule_id"]) if "name" in f) or "not exported",
+                                 "affected_paths": ",".join(sorted({p for f in inventory for p in f.get("paths", [])})) or "not exported",
+                                 "schemes": ",".join(sorted({s for f in inventory for s in f.get("schemes", [])})) or "not exported",
+                                 "param_names": ",".join(sorted({n for f in inventory for n in f.get("params", [])})) or "not exported",
                                  "instance_count": str(sum(f["instances"] for f in inventory)),
                                  "proposed_owner_role": item["owner_role"],
                                  "priority_rationale": item["rationale"],

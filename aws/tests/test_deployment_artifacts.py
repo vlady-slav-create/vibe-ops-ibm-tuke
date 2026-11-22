@@ -18,7 +18,6 @@ def main():
             assert "contracts/security_report.py" in names
             assert "contracts/normalize.jq" in names
             assert "contracts/schemas.json" in names
-            assert "lambda_functions/scan_context.py" in names
             assert not any(name.startswith(("agentcore_runtime/", "tests/", "pip/")) for name in names)
             archive.extractall(target)
         subprocess.run([sys.executable, "-S", "-c",

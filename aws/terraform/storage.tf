@@ -1,6 +1,6 @@
 resource "aws_s3_bucket" "results" {
   bucket_prefix = "${var.name}-"
-  force_destroy = false
+  force_destroy = true # demo data only: destroy empties the bucket
 }
 
 resource "aws_s3_bucket_public_access_block" "results" {

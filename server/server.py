@@ -6,13 +6,14 @@ Endpoints:
   GET  /api/health        {"status":"ok"}
   GET  /api/schedule      schedule (public)
   GET  /api/courses       courses (public)
-  GET  /api/grades        grades, needs Authorization: Bearer <token>, otherwise 401
+  GET  /api/grades        grades, needs Authorization: Bearer <token> (or weak demo ?token=<token>), otherwise 401
   POST /login             200 with a token for any non-empty username and password, 401 if empty
 Anything else: 404.
 """
 import json
 import ssl
 import threading
+from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -39,6 +40,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        # Deliberately weak demo cookie (no Secure/HttpOnly/SameSite): sniffable and replayable by a MITM.
+        if code == 200 and isinstance(obj, dict) and obj.get("token"):
+            self.send_header("Set-Cookie", f"session={obj['token']}; Path=/")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -57,7 +61,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/courses":
             self._json(200, COURSES)
         elif path == "/api/grades":
-            if self.headers.get("Authorization") == f"Bearer {DEMO_TOKEN}":
+            # Deliberately weak: token also accepted in the URL (logged, cached, sniffable).
+            in_url = DEMO_TOKEN in parse_qs(urlsplit(self.path).query).get("token", [])
+            if in_url or self.headers.get("Authorization") == f"Bearer {DEMO_TOKEN}":
                 self._json(200, GRADES)
             else:
                 self._json(401, {"status": "error", "message": "missing or invalid token"})

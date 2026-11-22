@@ -1,0 +1,101 @@
+{
+ "server_scan_results": [
+  {
+   "connectivity_status": "COMPLETED",
+   "scan_result": {
+    "certificate_info": {
+     "result": {
+      "certificate_deployments": [
+       {
+        "path_validation_results": [
+         {
+          "was_validation_successful": false
+         },
+         {
+          "was_validation_successful": false
+         },
+         {
+          "was_validation_successful": false
+         },
+         {
+          "was_validation_successful": false
+         },
+         {
+          "was_validation_successful": false
+         }
+        ],
+        "received_certificate_chain": [
+         {
+          "issuer": {
+           "rfc4514_string": "CN=server"
+          },
+          "not_valid_after": "2027-11-22T04:53:37Z",
+          "subject": {
+           "rfc4514_string": "CN=server"
+          }
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "ssl_2_0_cipher_suites": {
+     "accepted_cipher_suites": [],
+     "is_tls_version_supported": false
+    },
+    "ssl_3_0_cipher_suites": {
+     "accepted_cipher_suites": [],
+     "is_tls_version_supported": false
+    },
+    "tls_1_0_cipher_suites": {
+     "accepted_cipher_suites": [],
+     "is_tls_version_supported": false
+    },
+    "tls_1_1_cipher_suites": {
+     "accepted_cipher_suites": [],
+     "is_tls_version_supported": false
+    },
+    "tls_1_2_cipher_suites": {
+     "accepted_cipher_suites": [
+      {
+       "cipher_suite": {
+        "name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+       }
+      },
+      {
+       "cipher_suite": {
+        "name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+       }
+      },
+      {
+       "cipher_suite": {
+        "name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384"
+       }
+      }
+     ],
+     "is_tls_version_supported": true
+    },
+    "tls_1_3_cipher_suites": {
+     "accepted_cipher_suites": [
+      {
+       "cipher_suite": {
+        "name": "TLS_CHACHA20_POLY1305_SHA256"
+       }
+      },
+      {
+       "cipher_suite": {
+        "name": "TLS_AES_256_GCM_SHA384"
+       }
+      },
+      {
+       "cipher_suite": {
+        "name": "TLS_AES_128_GCM_SHA256"
+       }
+      }
+     ],
+     "is_tls_version_supported": true
+    }
+   }
+  }
+ ]
+}

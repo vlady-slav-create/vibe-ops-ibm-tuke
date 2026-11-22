@@ -8,6 +8,7 @@
       "Resource": "${analyze_and_store_arn}",
       "Parameters": {"mode.$": "$.mode", "events.$": "$.events"},
       "TimeoutSeconds": 310,
+      "Retry": [{"ErrorEquals": ["RuntimeClientError"], "IntervalSeconds": 10, "MaxAttempts": 1}],
       "Next": "PublishFindings"
     },
     "PublishFindings": {

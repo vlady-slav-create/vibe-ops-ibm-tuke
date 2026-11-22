@@ -58,6 +58,7 @@ STEPS = [
     ("courses",                           "GET",  f"{HTTP}/api/courses",  None,       None,  True),
     ("login (HTTP)",                      "POST", f"{HTTP}/login",        GOOD_LOGIN, None,  True),
     ("grades with token (HTTP)",          "GET",  f"{HTTP}/api/grades",   None,       TOKEN, True),
+    ("grades with token in URL (ZAP 10024)", "GET", f"{HTTP}/api/grades?token={TOKEN}", None, None, True),
     ("login, empty password",             "POST", f"{HTTP}/login",        BAD_LOGIN,  None,  True),
     ("grades without token",              "GET",  f"{HTTP}/api/grades",   None,       None,  True),
     ("nonexistent path",                  "GET",  f"{HTTP}/nope",         None,       None,  True),

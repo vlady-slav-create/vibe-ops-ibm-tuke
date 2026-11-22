@@ -64,7 +64,7 @@ locals {
     ]
     analyze-and-store = [
       { Effect = "Allow", Action = ["bedrock-agentcore:InvokeAgentRuntime"], Resource = try([aws_bedrockagentcore_agent_runtime.analysis[0].agent_runtime_arn, "${aws_bedrockagentcore_agent_runtime.analysis[0].agent_runtime_arn}/runtime-endpoint/*"], []) },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = ["${aws_s3_bucket.results.arn}/results/*", "${aws_s3_bucket.results.arn}/context/v1/*"] },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${aws_s3_bucket.results.arn}/results/*" },
       # GetObject needs ListBucket to distinguish missing objects (404) from denied reads (403).
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.results.arn }
     ]

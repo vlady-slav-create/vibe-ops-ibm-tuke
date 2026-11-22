@@ -7,11 +7,39 @@ from datetime import datetime, timezone
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from contracts.evidence import validate
 from contracts.security_report import validate_report
 from contracts.schema import validate_schema
-from lambda_functions.scan_context import advance_context, pin_context, read_json, write_json
+
+
+def read_json(s3, bucket, key):
+    try:
+        response = s3.get_object(Bucket=bucket, Key=key)
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in {"NoSuchKey", "404"}:
+            return None, None
+        raise
+    stream = response["Body"]
+    try:
+        body = stream.read(1048577)
+    finally:
+        stream.close()
+    if len(body) > 1048576:
+        raise ValueError("stored context or result too large")
+    return json.loads(body), response["ETag"]
+
+
+def write_json(s3, bucket, key, value, **condition):
+    try:
+        s3.put_object(Bucket=bucket, Key=key, ContentType="application/json",
+                      Body=json.dumps(value).encode(), **condition)
+        return True
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in {"PreconditionFailed", "412", "ConditionalRequestConflict", "409"}:
+            return False
+        raise
 
 
 def process(events, s3, runtime, bucket, runtime_arn, mode):
@@ -22,16 +50,12 @@ def process(events, s3, runtime, bucket, runtime_arn, mode):
     saved, _ = read_json(s3, bucket, key)
     if saved is None:
         payload = {"mode": mode, "events": events}
-        if event["event"] == "zap_scan":
-            payload["context"] = pin_context(s3, bucket, event)
         saved = analyze(events, runtime, runtime_arn, mode, payload)
         if not write_json(s3, bucket, key, saved, IfNoneMatch="*"):
             saved, _ = read_json(s3, bucket, key)
     if saved is None or saved["mode"] != mode or saved["evidence"] != events:
         raise ValueError("saved analysis does not match invocation")
     validate_report(saved["report"], events)
-    if event["event"] == "zap_scan":
-        advance_context(s3, bucket, event, key)
     return {"keys": [key]}
 
 
@@ -59,9 +83,6 @@ def analyze(events, runtime, runtime_arn, mode, payload):
              "batch_id": hashlib.sha256(event["event_id"].encode()).hexdigest(),
              "analyzed_at": datetime.now(timezone.utc).isoformat(), "evidence": events,
              "report": result["report"], "specialists": result["specialists"]}
-    if "context" in payload:
-        saved["context"] = payload["context"]
-    saved["comparisons"] = result["comparisons"]
     return saved
 
 

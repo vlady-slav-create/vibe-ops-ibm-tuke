@@ -90,6 +90,23 @@ services:
     networks: [lab]
     depends_on: [mitmproxy]
 
+  # TLS configuration of the portal's HTTPS port, run as a separate scanner (no ZAP HAR evidence for handshakes).
+  # Output is a local JSON file; zap/findings.jq keeps a few allowlisted fields. A failed scan leaves
+  # tls_config absent, which means unknown, never safe.
+  sslyze:
+    image: nablac0d3/sslyze:6.3.1@sha256:3060ce2f3168cf1d74e5a0989660008052bee645826875122ba7edea95e5b95c
+    user: "1000:1000"
+    # Mozilla profile check off: it exits non-zero on non-compliance; the model judges the facts instead.
+    command: ["--mozilla_config=disable", "--quiet", "--json_out", "/capture/sslyze.json", "server:8443"]
+    volumes:
+      - capture:/capture
+    networks: [lab]
+    depends_on:
+      server:
+        condition: service_started
+      storage:
+        condition: service_completed_successfully
+
   zap:
     image: ghcr.io/zaproxy/zaproxy:2.17.0
     user: "1000:1000"
@@ -108,9 +125,10 @@ services:
     depends_on:
       storage:
         condition: service_completed_successfully
+      sslyze:
+        condition: service_completed_successfully
 
   publisher:
-    profiles: [aws]
     image: amazon/aws-cli:latest
     entrypoint: ["/bin/sh", "/publish.sh"]
     environment:

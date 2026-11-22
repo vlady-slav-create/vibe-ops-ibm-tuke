@@ -1,5 +1,6 @@
 """Bounded rolling HAR snapshots; never overwrite a snapshot being scanned."""
 import asyncio
+import json
 from collections import deque
 import logging
 import os
@@ -17,7 +18,13 @@ class Snapshots:
         # ponytail: flow count bounds demo history, not bytes; add byte limits for large bodies.
         self.flows = deque(maxlen=limit)
         self.dirty = False
+        self.tls_rejected = 0
         self.directory = Path("/capture")
+
+    def tls_failed_client(self, data):
+        # Client aborted the handshake (did not trust the proxy certificate). Count only, no peer details.
+        self.tls_rejected += 1
+        self.dirty = True
 
     def response(self, flow):
         self.flows.append(flow.copy())
@@ -32,6 +39,7 @@ class Snapshots:
             ctx.master.commands.call("save.har", list(self.flows), str(temporary))
             temporary.chmod(0o600)
             temporary.replace(self.directory / "traffic.har")
+            (self.directory / "tls.json").write_text(json.dumps({"tls_client_rejected": self.tls_rejected}))
             ready.touch(mode=0o600)
             self.dirty = False
         except Exception:

@@ -5,10 +5,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "aws"))
-from contracts.scan_comparison import compare_scans
 from contracts.evidence import validate
 from contracts.security_report import validate_report
-from contracts.schema import validate_schema
 
 
 def render(result):
@@ -31,35 +29,24 @@ def render(result):
              "> Agent-generated recommendations. Human review required; no changes executed.", "",
              report.strip(), "", "## Recorded evidence (deterministic)", "",
              "Counts below come from sanitized evidence, not model estimates.", ""]
-    comparisons = result.get("comparisons")
-    if comparisons is None:
-        comparisons = compare_scans(events)
-    validate_schema("comparisons", comparisons)
-    comparisons = {c["event_id"]: c for c in comparisons}
     for event in events:
         lines.extend([f"### Event `{event['event_id']}`", "",
                       f"Captured: {event['captured_at']}", ""])
         if event["event"] != "zap_scan":
-            lines.extend(["Legacy exchange evidence; no ZAP scan inventory or baseline comparison.", ""])
+            lines.extend(["Legacy exchange evidence; no ZAP scan inventory.", ""])
             continue
         current = event["current"]
-        lines.extend([f"Asset: `{event['asset_id']}`. Coverage, paths and transport not exported.", "",
+        lines.extend([f"Asset: `{event['asset_id']}`. Request coverage not exported.", "",
                       f"Rule groups: {len(current['findings'])}. Alert instances: "
                       f"{sum(f['instances'] for f in current['findings'])} (not affected users or leaked secrets).", "",
-                      "| Rule ID | Scanner risk | Scanner confidence | Instances |",
-                      "| --- | --- | --- | --- |"])
+                      "| Rule ID | Scanner risk | Scanner confidence | Instances | Paths | Schemes | Params |",
+                      "| --- | --- | --- | --- | --- | --- | --- |"])
         for f in sorted(current["findings"], key=lambda f: (-f["risk"], f["rule_id"])):
-            lines.append(f"| {f['rule_id']} | {f['risk']} | {f['confidence']} | {f['instances']} |")
+            lines.append(f"| {f['rule_id']} | {f['risk']} | {f['confidence']} | {f['instances']} | "
+                         + " | ".join(", ".join(f.get(k, [])) or "-" for k in ("paths", "schemes", "params")) + " |")
         lines.extend(["", "Scanner risk: 0 informational, 1 low, 2 medium, 3 high. "
                       "Confidence: 0 false positive, 1 low, 2 medium, 3 high, 4 confirmed. "
                       "Scanner ratings are not agent work priority.", ""])
-        delta = comparisons[event["event_id"]]
-        if not delta["baseline_available"]:
-            lines.extend(["Baseline unavailable; no change claim supported.", ""])
-        else:
-            for name in ("added", "changed", "absent", "unchanged"):
-                lines.append(f"- {name.capitalize()} rule groups: {', '.join(delta[name]) or 'none'}")
-            lines.extend(["", delta["limitation"], ""])
     lines.extend(["## Handling and limits", "",
                   "Raw HAR and ZAP report remain local. HAR cannot establish certificate validation "
                   "or malicious MITM. Unknown rule semantics require local ZAP lookup. "

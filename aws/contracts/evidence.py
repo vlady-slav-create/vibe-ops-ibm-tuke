@@ -1,7 +1,6 @@
 """Cloud boundary: export facts, never captured bodies, headers or query strings."""
 import hashlib
 import json
-from datetime import datetime
 from pathlib import Path
 
 import jq
@@ -32,8 +31,6 @@ def scan_hash(event):
 
 def check_scan(event):
     scan_snapshot(event["current"])
-    if event["baseline"] is not None:
-        scan_snapshot(event["baseline"])
     if len(json.dumps(event).encode()) > MAX_BYTES:
         raise ValueError("scan event too large")
     if scan_hash(event) != event["event_id"]:
@@ -58,20 +55,4 @@ def validate(payload):
     for event in payload["events"]:
         if event["source"] == "zap-passive":
             check_scan(event)
-    if "context" in payload:
-        if len(payload["events"]) != 1 or payload["events"][0]["event"] != "zap_scan":
-            raise ValueError("scan context requires one scan")
-        previous = payload["context"]["previous"]
-        if previous is not None:
-            prior, current = previous["event"], payload["events"][0]
-            check_scan(prior)
-            if (prior["asset_id"] != current["asset_id"] or
-                    scan_time(prior) >= scan_time(current) or
-                    previous["report_key"].rsplit("/", 1)[-1] != prior["event_id"] + ".json"):
-                raise ValueError("invalid prior scan context")
     return payload["events"]
-
-
-def scan_time(event):
-    return datetime.fromisoformat(event["captured_at"].upper().replace("Z", "+00:00"))
-

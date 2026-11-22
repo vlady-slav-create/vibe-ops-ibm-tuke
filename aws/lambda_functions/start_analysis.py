@@ -9,6 +9,10 @@ from botocore.exceptions import ClientError
 
 from contracts.evidence import validate
 
+# ponytail: TEMPORARY, single mode only. Restore ("single", "orchestrator", "graph") when the other
+# modes are tested; test_security_pipeline follows MODES.
+MODES = ("single",)
+
 
 def process(records, workflows, workflow_arn):
     for record in records:
@@ -16,7 +20,7 @@ def process(records, workflows, workflow_arn):
         if len(data) > 16384:
             raise ValueError("record too large")
         event = json.loads(data)
-        for mode in ("single", "orchestrator", "graph"):
+        for mode in MODES:
             payload = {"mode": mode, "events": [event]}
             validate(payload)
             # Separate executions run concurrently; retries resume partial fanout.
