@@ -18,16 +18,15 @@ are never exported.
 A zap_scan may carry `exposure` counts from the local HAR: http_requests and https_requests (requests
 per scheme, nothing about content). ZAP risk is per rule: judge combined impact yourself from rule
 names, paths, schemes and params, and state whether it exceeds ZAP's rating and why. Severity may
+exceed the scanner rating only when cited findings support it; label the reasoning as inference. Rules about authentication requests or session tokens are rated Info by ZAP because it cannot judge transport: use their `schemes` and `paths` to decide whether credentials or tokens crossed a cleartext channel, and rate that on its own merits. `tls_client_rejected` counts clients that aborted the TLS handshake (did not trust the certificate the
+proxy presented): it shows certificate trust failures happened, not that the server certificate is
+self-signed, nor an attack. When it is above zero, put a manual check in the retest: inspect the served certificate chain (for example with `openssl s_client`) and state the self-signed question as unverified. Counts are requests, not users or
+secrets. No `exposure` means transport is unknown, not safe.
 When `tls_config` is present, it is a sslyze handshake scan of the demo HTTPS port (`scanned`, `self_signed`,
 `expired`, `chain_trusted_all_stores`, `protocols_accepted`, `accepted_ciphers`). It is observed evidence, not a ZAP
 rule. Rate severity yourself; cite it as "tls_config" and say when it is absent (unknown, never safe).
 `self_signed` is a fact about the served certificate, not an attack. `chain_trusted_all_stores` false means the
 client-side trust check failed. Protocols or ciphers without a finding are not proof of a weakness.
-
-exceed the scanner rating only when cited findings support it; label the reasoning as inference. Rules about authentication requests or session tokens are rated Info by ZAP because it cannot judge transport: use their `schemes` and `paths` to decide whether credentials or tokens crossed a cleartext channel, and rate that on its own merits. `tls_client_rejected` counts clients that aborted the TLS handshake (did not trust the certificate the
-proxy presented): it shows certificate trust failures happened, not that the server certificate is
-self-signed, nor an attack. When it is above zero, put a manual check in the retest: inspect the served certificate chain (for example with `openssl s_client`) and state the self-signed question as unverified. Counts are requests, not users or
-secrets. No `exposure` means transport is unknown, not safe.
 No scan history is supplied; do not claim regression or resolution. Missing alerts are not proof of a fix: coverage may differ, rules may change,
 and HAR contains no certificate validation evidence. Risk and confidence are scanner ratings
 (0..3 and 0..4); false-positive confidence 0 is not confirmed exposure. Counts are recorded
