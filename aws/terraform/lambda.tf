@@ -5,7 +5,7 @@ locals {
       environment = { WORKFLOW_ARN = "${local.prefix}:states:${var.region}:${local.account}:stateMachine:${var.name}-security-analysis" }
     }
     analyze-and-store = {
-      handler     = "analyze_and_store", timeout = 300,
+      handler     = "analyze_and_store", timeout = 600,
       environment = { RUNTIME_ARN = aws_bedrockagentcore_agent_runtime.analysis[0].agent_runtime_arn, RESULTS_BUCKET = aws_s3_bucket.results.id }
     }
     publish-findings = {

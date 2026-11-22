@@ -54,7 +54,7 @@ def findings_for(saved, account, region, partition, bucket):
             continue
         inventory = [f for f in event["current"]["findings"] if f["rule_id"] in item["rule_ids"]]
         # Do not promote groups classified entirely as false positive to exposure.
-        severity = item["severity"] if any(f["confidence"] > 0 for f in inventory) else "INFORMATIONAL"
+        severity = item["severity"] if item["group"] == "tls" or any(f["confidence"] > 0 for f in inventory) else "INFORMATIONAL"
         description = render("work-item.mustache", item)
         findings.append(finding(item["group"], item["title"], description, severity,
                                 render("remediation.mustache", item),

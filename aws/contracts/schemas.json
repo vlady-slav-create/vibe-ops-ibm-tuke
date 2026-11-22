@@ -148,7 +148,7 @@
       "required": ["event_id", "group", "rule_ids", "title", "severity", "rationale", "owner_role", "observation", "hypothesis", "fix", "retest", "limitations"],
       "properties": {
         "event_id": {"$ref": "#/$defs/eventId"},
-        "group": {"enum": ["cookie-hardening", "security-headers", "url-exposure", "authentication", "other"]},
+        "group": {"enum": ["cookie-hardening", "security-headers", "url-exposure", "authentication", "tls", "other"]},
         "rule_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/ruleId"}},
         "title": {"$ref": "#/$defs/text", "maxLength": 120},
         "severity": {"enum": ["INFORMATIONAL", "LOW", "MEDIUM", "HIGH"]},

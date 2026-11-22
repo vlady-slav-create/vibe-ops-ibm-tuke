@@ -95,7 +95,7 @@ resource "aws_bedrockagentcore_agent_runtime" "analysis" {
     PROMPT_CACHE_ENABLED = tostring(var.prompt_cache_enabled)
   }
   lifecycle_configuration {
-    idle_runtime_session_timeout = 60
+    idle_runtime_session_timeout = 300
     max_lifetime                 = 600
   }
   depends_on = [aws_iam_role_policy.agent, aws_bedrock_foundation_model_agreement.analysis]

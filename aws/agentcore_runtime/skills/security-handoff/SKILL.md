@@ -43,7 +43,8 @@ by ZAP title, not only number. fix: imperative steps naming what to change and w
 "Add header X-Content-Type-Options: nosniff in the reverse proxy for all responses".
 retest: numbered checks a human can run. Event IDs belong in event_id only.
 For EACH ZAP event group ALL current rule IDs exactly once, using the fixed shared-fix groups listed under SHARED-FIX GROUPS (rule membership is
-supplied by the runtime; `other` holds every rule not listed). Exactly one item per nonempty group per event.
+supplied by the runtime; `other` holds every rule not listed). Exactly one item per nonempty group per event. Group `tls` (rule ID "0") covers `tls_config`:
+rate it from its facts (self-signed, expired, untrusted chain, legacy protocols or weak ciphers).
 Do not group across events. Do not invent rules.
 For empty ZAP scans or legacy exchanges return no work items for that event; summary must
 explain evidence limits, never all-clear. Unknown rules need local lookup, not invented fixes.

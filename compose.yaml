@@ -97,7 +97,7 @@ services:
     image: nablac0d3/sslyze:6.3.1@sha256:3060ce2f3168cf1d74e5a0989660008052bee645826875122ba7edea95e5b95c
     user: "1000:1000"
     # Mozilla profile check off: it exits non-zero on non-compliance; the model judges the facts instead.
-    command: ["--mozilla_config=disable", "--quiet", "--json_out", "/capture/sslyze.json", "server:8443"]
+    command: ["--mozilla_config=disable", "--certinfo", "--sslv3", "--tlsv1_2", "--tlsv1_3", "--quiet", "--json_out", "/capture/sslyze.json", "server:8443"]
     volumes:
       - capture:/capture
     networks: [lab]

@@ -157,6 +157,7 @@ def main():
     tls_event = normalize(export.input_value(report).first())
     assert tls_event["tls_config"]["self_signed"] is True and tls_event["tls_config"]["chain_trusted_all_stores"] is False
     assert {"TLS 1.2", "TLS 1.3"} >= set(tls_event["tls_config"]["protocols_accepted"]) and "TLS 1.0" not in tls_event["tls_config"]["protocols_accepted"]
+    assert ("tls", {"0"}) in [(g, r) for (_, g), r in expected_items([tls_event]).items()]
     for leak in ("CN=server", "2027-11-22", "server.crt", "fingerprint_sha256", "public_bytes"):
         assert leak not in json.dumps(tls_event), leak
     rejected(normalize, {**raw, "tls_config": {"scanned": True, "self_signed": "yes", "expired": False, "chain_trusted_all_stores": False,

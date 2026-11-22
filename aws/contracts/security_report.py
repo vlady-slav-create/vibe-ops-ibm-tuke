@@ -7,6 +7,7 @@ GROUPS = {
     "security-headers": {"10020", "10021", "10035", "10038"},
     "url-exposure": {"10024"},
     "authentication": {"10111", "10112"},
+    "tls": {"0"},  # ponytail: synthetic rule ID for sslyze tls_config; no ZAP rule uses 0.
     "other": set(),
 }
 
@@ -22,6 +23,8 @@ def expected_items(events):
         if event["event"] == "zap_scan":
             for finding in event["current"]["findings"]:
                 expected.setdefault((event["event_id"], group_for(finding["rule_id"])), set()).add(finding["rule_id"])
+            if "tls_config" in event:
+                expected[(event["event_id"], "tls")] = {"0"}
     return expected
 
 

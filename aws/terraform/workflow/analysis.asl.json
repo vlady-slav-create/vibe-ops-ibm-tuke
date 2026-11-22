@@ -7,8 +7,8 @@
       "Type": "Task",
       "Resource": "${analyze_and_store_arn}",
       "Parameters": {"mode.$": "$.mode", "events.$": "$.events"},
-      "TimeoutSeconds": 310,
-      "Retry": [{"ErrorEquals": ["RuntimeClientError"], "IntervalSeconds": 10, "MaxAttempts": 1}],
+      "TimeoutSeconds": 610,
+      "Retry": [{"ErrorEquals": ["RuntimeClientError"], "IntervalSeconds": 15, "MaxAttempts": 2, "BackoffRate": 2}],
       "Next": "PublishFindings"
     },
     "PublishFindings": {

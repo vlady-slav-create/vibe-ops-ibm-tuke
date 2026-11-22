@@ -16,7 +16,7 @@ def main():
     assert states["AnalyzeAndStore"]["Next"] == "PublishFindings"
     assert states["AnalyzeAndStore"]["Parameters"] == {"mode.$": "$.mode", "events.$": "$.events"}
     # Runtime client errors get one retry; Lambda reuses saved results, so no duplicate inference.
-    assert states["AnalyzeAndStore"]["Retry"] == [{"ErrorEquals": ["RuntimeClientError"], "IntervalSeconds": 10, "MaxAttempts": 1}]
+    assert states["AnalyzeAndStore"]["Retry"] == [{"ErrorEquals": ["RuntimeClientError"], "IntervalSeconds": 15, "MaxAttempts": 2, "BackoffRate": 2}]
     publish = states["PublishFindings"]
     assert publish["Type"] == "Parallel" and len(publish["Branches"]) == 1
     assert "Retry" not in publish

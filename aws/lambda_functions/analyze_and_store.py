@@ -88,5 +88,5 @@ def analyze(events, runtime, runtime_arn, mode, payload):
 
 def handler(event, context):
     return process(event["events"], boto3.client("s3"), boto3.client("bedrock-agentcore", config=Config(
-        read_timeout=240, connect_timeout=10, retries={"mode": "standard", "max_attempts": 1})),
+        read_timeout=540, connect_timeout=10, retries={"mode": "standard", "max_attempts": 1})),
         os.environ["RESULTS_BUCKET"], os.environ["RUNTIME_ARN"], event["mode"])

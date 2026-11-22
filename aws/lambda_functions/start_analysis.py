@@ -9,9 +9,7 @@ from botocore.exceptions import ClientError
 
 from contracts.evidence import validate
 
-# ponytail: TEMPORARY, single mode only. Restore ("single", "orchestrator", "graph") when the other
-# modes are tested; test_security_pipeline follows MODES.
-MODES = ("single",)
+MODES = ("single", "orchestrator", "graph")
 
 
 def process(records, workflows, workflow_arn):
